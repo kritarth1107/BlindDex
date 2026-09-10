@@ -1,0 +1,18 @@
+[package]
+name = "blinddex-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "CLI for BlindDex: put / get-blind / root over opaque catalogs"
+repository.workspace = true
+
+[[bin]]
+name = "blinddex"
+path = "src/main.rs"
+
+[dependencies]
+blinddex = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
