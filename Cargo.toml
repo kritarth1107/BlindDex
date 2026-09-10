@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/blinddex",
+    "crates/blinddex-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Kritarth Agrawal"]
+repository = "https://github.com/kritarth1107/blinddex"
+
+[workspace.dependencies]
+blinddex = { path = "crates/blinddex" }
+blake3 = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
