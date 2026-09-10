@@ -1,0 +1,29 @@
+{
+  "params": {
+    "n_rows": 8,
+    "row_bytes": 64,
+    "modulus": 4294967296
+  },
+  "entries": [
+    {
+      "index": 0,
+      "key": "wire_transfer",
+      "payload": "skill:wire_transfer — agent download demo"
+    },
+    {
+      "index": 1,
+      "key": "invoice_parse",
+      "payload": "skill:invoice_parse pack v0"
+    },
+    {
+      "index": 2,
+      "key": "mcp.search",
+      "payload": "{\"name\":\"search\",\"desc\":\"opaque tool\"}"
+    },
+    {
+      "index": 3,
+      "key": "calendar",
+      "payload": "calendar.sync opaque blob"
+    }
+  ]
+}
