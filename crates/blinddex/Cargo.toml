@@ -1,0 +1,22 @@
+[package]
+name = "blinddex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Single-server computational PIR for opaque catalogs (SimplePIR-style matvec)"
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["pir", "privacy", "catalog", "merkle"]
+categories = ["cryptography", "data-structures"]
+
+[dependencies]
+blake3 = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
