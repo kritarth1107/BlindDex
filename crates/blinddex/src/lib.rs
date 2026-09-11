@@ -6,7 +6,8 @@
 //! payload.
 //!
 //! This crate ships a **toy SimplePIR-style matvec** with exact one-hot queries
-//! for demos, plus a SHA-256 Merkle commitment over fixed-width rows.
+//! for demos, plus a SHA-256 Merkle commitment over fixed-width rows and
+//! inclusion proofs.
 //!
 //! ## Honest non-claims
 //!
@@ -21,6 +22,7 @@
 pub mod catalog;
 pub mod client;
 pub mod error;
+pub mod merkle;
 pub mod params;
 pub mod pir;
 pub mod server;
@@ -28,6 +30,7 @@ pub mod server;
 pub use catalog::{Catalog, CatalogFile, CatalogFileEntry};
 pub use client::BlindClient;
 pub use error::{BlindDexError, Result};
+pub use merkle::{MerkleProof, ProofStep, SiblingSide};
 pub use params::{
     Params, DEFAULT_MODULUS, DEFAULT_N_ROWS, DEFAULT_ROW_BYTES, MAX_N_ROWS, MAX_ROW_BYTES,
 };

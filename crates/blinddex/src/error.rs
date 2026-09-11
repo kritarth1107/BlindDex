@@ -80,6 +80,24 @@ pub enum BlindDexError {
         expected: usize,
     },
 
+    /// Merkle inclusion proof does not open to the expected root.
+    #[error("merkle proof verification failed: expected root {expected}, got {got}")]
+    ProofVerificationFailed {
+        /// Expected root hex.
+        expected: String,
+        /// Recomputed root hex.
+        got: String,
+    },
+
+    /// Batch request was empty or exceeded the toy batch cap.
+    #[error("invalid batch size {got}: must be 1..={max}")]
+    InvalidBatchSize {
+        /// Requested batch length.
+        got: usize,
+        /// Allowed maximum.
+        max: usize,
+    },
+
     /// JSON (de)serialization failure.
     #[error("serde error: {0}")]
     Serde(String),
