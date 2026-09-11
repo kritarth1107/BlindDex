@@ -7,14 +7,15 @@
 //!
 //! This crate ships a **toy SimplePIR-style matvec** with exact one-hot queries
 //! for demos, plus a SHA-256 Merkle commitment over fixed-width rows, inclusion
-//! proofs, and batch retrieval (multiple matvecs).
+//! proofs, batch retrieval (multiple matvecs), and a JSON wire codec.
 //!
 //! ## Honest non-claims
 //!
 //! - Computational PIR (SimplePIR-style), **not** FHE.
 //! - Toy params: `N ≤ 2^12` (4096), row ≤ 256 bytes.
 //! - Server sees query **size**; we do not hide that a query happened.
-//! - Query privacy on the wire is still **toy** (exact one-hot).
+//! - Query privacy on the wire is still **toy** (exact one-hot); JSON encoding
+//!   does not add privacy.
 //! - Not production parameters; not ANN / vector search.
 
 #![forbid(unsafe_code)]
@@ -27,6 +28,7 @@ pub mod merkle;
 pub mod params;
 pub mod pir;
 pub mod server;
+pub mod wire;
 
 pub use catalog::{Catalog, CatalogFile, CatalogFileEntry};
 pub use client::{BlindClient, ProvenRow, MAX_BATCH_SIZE};
@@ -37,3 +39,7 @@ pub use params::{
 };
 pub use pir::{DatabaseMatrix, PirEngine};
 pub use server::{put_entry, BlindServer};
+pub use wire::{
+    proof_from_json, proof_to_json, WireAnswer, WireBatchProven, WireProvenRow, WireQuery,
+    WIRE_VERSION,
+};
