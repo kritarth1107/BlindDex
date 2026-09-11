@@ -24,6 +24,11 @@
       "index": 3,
       "key": "calendar",
       "payload": "calendar.sync opaque blob"
+    },
+    {
+      "index": 4,
+      "key": "batch.demo",
+      "payload": "batch-get-blind demo row"
     }
   ]
 }
