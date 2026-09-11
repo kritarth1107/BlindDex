@@ -2,12 +2,14 @@
 
 use crate::catalog::Catalog;
 use crate::error::Result;
+use crate::merkle::MerkleProof;
 use crate::pir::DatabaseMatrix;
 
 /// Server holding an encoded catalog. Sees query **size**, not (in the real
 /// cryptographic setting) the index. This toy answers cleartext matvecs.
 #[derive(Debug, Clone)]
 pub struct BlindServer {
+    catalog: Catalog,
     matrix: DatabaseMatrix,
     merkle_root: [u8; 32],
 }
@@ -17,6 +19,7 @@ impl BlindServer {
     pub fn from_catalog(catalog: &Catalog) -> Result<Self> {
         let matrix = DatabaseMatrix::from_rows(*catalog.params(), catalog.rows())?;
         Ok(Self {
+            catalog: catalog.clone(),
             matrix,
             merkle_root: catalog.merkle_root(),
         })
@@ -37,9 +40,29 @@ impl BlindServer {
         self.matrix.matvec(query)
     }
 
+    /// Inclusion proof for `index` (server-side open of the committed leaf).
+    pub fn prove(&self, index: usize) -> Result<MerkleProof> {
+        self.catalog.prove(index)
+    }
+
+    /// Answer a PIR query and attach a Merkle inclusion proof for `index`.
+    ///
+    /// The index is still visible in the cleartext toy query; the proof only
+    /// authenticates the recovered row against the published root.
+    pub fn answer_proven(&self, query: &[u64], index: usize) -> Result<(Vec<u64>, MerkleProof)> {
+        let answer = self.answer(query)?;
+        let proof = self.prove(index)?;
+        Ok((answer, proof))
+    }
+
     /// Borrow the encoded database matrix.
     pub fn matrix(&self) -> &DatabaseMatrix {
         &self.matrix
+    }
+
+    /// Borrow the held catalog (for proofs / local inspection).
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
     }
 }
 
