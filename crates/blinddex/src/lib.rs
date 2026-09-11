@@ -6,14 +6,15 @@
 //! payload.
 //!
 //! This crate ships a **toy SimplePIR-style matvec** with exact one-hot queries
-//! for demos, plus a SHA-256 Merkle commitment over fixed-width rows and
-//! inclusion proofs.
+//! for demos, plus a SHA-256 Merkle commitment over fixed-width rows, inclusion
+//! proofs, and batch retrieval (multiple matvecs).
 //!
 //! ## Honest non-claims
 //!
 //! - Computational PIR (SimplePIR-style), **not** FHE.
 //! - Toy params: `N ≤ 2^12` (4096), row ≤ 256 bytes.
 //! - Server sees query **size**; we do not hide that a query happened.
+//! - Query privacy on the wire is still **toy** (exact one-hot).
 //! - Not production parameters; not ANN / vector search.
 
 #![forbid(unsafe_code)]
@@ -28,7 +29,7 @@ pub mod pir;
 pub mod server;
 
 pub use catalog::{Catalog, CatalogFile, CatalogFileEntry};
-pub use client::BlindClient;
+pub use client::{BlindClient, ProvenRow, MAX_BATCH_SIZE};
 pub use error::{BlindDexError, Result};
 pub use merkle::{MerkleProof, ProofStep, SiblingSide};
 pub use params::{
