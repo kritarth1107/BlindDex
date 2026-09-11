@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "CLI for BlindDex: put / get-blind / root over opaque catalogs"
+description = "CLI for BlindDex: put / get-blind / get-blind-proven / batch-get-blind / prove / root"
 repository.workspace = true
 
 [[bin]]
