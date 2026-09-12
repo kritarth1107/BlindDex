@@ -26,14 +26,16 @@ See [`THREAT_MODEL.md`](THREAT_MODEL.md) and [`SECURITY.md`](SECURITY.md).
 
 | Module | Role |
 | --- | --- |
-| `params` | Toy `Params { n_rows, row_bytes, modulus }` (`q = 2³²` by default) |
+| `params` | Toy `Params { n_rows, row_bytes, modulus }` (`q = 2³²` by default); preset factories |
 | `catalog` | Fixed-width rows, blake3 content-addressing, SHA-256 Merkle root, `prove` / `open_leaf_hash` |
 | `merkle` | `MerkleProof` + path verify against root |
-| `pir` | Encode DB as `Z_q` matrix; query vector; server matvec; client recover |
+| `pir` | Encode DB as `Z_q` matrix; query vector; server matvec; client recover; `query_noisy` (toy) |
+| `hint` | Offline hint scaffolding: seeded PRNG expansion for future SimplePIR offline phase |
+| `snapshot` | `SnapshotMeta` for catalog sealing (params + merkle root + row count) |
 | `client` | `get_blind` / `get_blind_proven` / `get_blind_batch` |
 | `server` | Hold catalog + matrix + root; answer matvecs; `prove` / `answer_proven` |
 | `wire` | JSON codec for `WireQuery` / `WireAnswer` / `WireProvenRow` |
-| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `prove` · `root` |
+| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `prove` · `root` · `hint-gen` · `snapshot` · `presets` |
 
 ## Quick start
 
@@ -59,8 +61,23 @@ cargo test --workspace
 # Print Merkle root
 ./target/release/blinddex root /tmp/cat.json
 
+# Generate offline hint (scaffolding, not privacy)
+./target/release/blinddex hint-gen /tmp/cat.json
+
+# Create catalog snapshot
+./target/release/blinddex snapshot /tmp/cat.json --write
+
+# List available presets
+./target/release/blinddex presets
+
 # Wire codec demo (no HTTP deps)
 cargo run -p blinddex --example wire_roundtrip
+
+# Hint roundtrip demo
+cargo run -p blinddex --example hint_roundtrip
+
+# Timing benchmark
+cargo run -p blinddex --example bench_matvec --release
 ```
 
 A committed toy catalog lives at [`fixtures/catalog_toy.json`](fixtures/catalog_toy.json).
@@ -95,9 +112,10 @@ A thin `blinddex-host` (axum/warp) can wrap the same codec later without changin
 ## Library sketch
 
 ```rust
-use blinddex::{BlindClient, BlindServer, Catalog, Params};
+use blinddex::{BlindClient, BlindServer, Catalog, Hint, Params, SnapshotMeta};
 
-let params = Params::new(16, 64, 1u64 << 32)?;
+// Use a preset or custom params
+let params = Params::preset_small(); // or Params::new(16, 64, 1u64 << 32)?
 let mut cat = Catalog::new(params)?;
 cat.insert(Some("wire_transfer".into()), b"skill bytes")?;
 let root = cat.merkle_root_hex();
@@ -110,6 +128,15 @@ assert_eq!(server.merkle_root_hex(), root);
 
 let batch = client.get_blind_batch(&server, &[0, 1])?;
 assert_eq!(batch.len(), 2);
+
+// Offline hint scaffolding (not privacy, just API shape)
+let seed = [42u8; 32];
+let hint = Hint::generate(&params, seed)?;
+assert!(hint.matches_params(&params));
+
+// Snapshot for catalog sealing
+let snap = SnapshotMeta::from_catalog(&cat);
+assert!(snap.matches_catalog(&cat));
 ```
 
 ## Workspace layout
@@ -117,7 +144,10 @@ assert_eq!(batch.len(), 2);
 ```
 crates/blinddex/          # library crate
 crates/blinddex-cli/      # `blinddex` binary
-examples/wire_roundtrip.rs
+examples/
+  wire_roundtrip.rs       # JSON codec demo
+  hint_roundtrip.rs       # offline hint API demo
+  bench_matvec.rs         # timing benchmark
 fixtures/catalog_toy.json
 THREAT_MODEL.md
 SECURITY.md
