@@ -241,10 +241,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let cat = Catalog::load_json(&catalog)?;
             let seed_bytes: [u8; 32] = if let Some(hex_str) = seed {
-                let bytes = hex::decode(&hex_str)
-                    .map_err(|e| format!("invalid seed hex: {e}"))?;
+                let bytes = hex::decode(&hex_str).map_err(|e| format!("invalid seed hex: {e}"))?;
                 if bytes.len() != 32 {
-                    return Err(format!("seed must be 32 bytes (64 hex chars), got {}", bytes.len()).into());
+                    return Err(format!(
+                        "seed must be 32 bytes (64 hex chars), got {}",
+                        bytes.len()
+                    )
+                    .into());
                 }
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&bytes);
@@ -285,10 +288,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let cat = Catalog::load_json(&catalog)?;
             let snap = if let Some(hex_str) = hint_seed {
-                let bytes = hex::decode(&hex_str)
-                    .map_err(|e| format!("invalid hint_seed hex: {e}"))?;
+                let bytes =
+                    hex::decode(&hex_str).map_err(|e| format!("invalid hint_seed hex: {e}"))?;
                 if bytes.len() != 32 {
-                    return Err(format!("hint_seed must be 32 bytes (64 hex chars), got {}", bytes.len()).into());
+                    return Err(format!(
+                        "hint_seed must be 32 bytes (64 hex chars), got {}",
+                        bytes.len()
+                    )
+                    .into());
                 }
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&bytes);

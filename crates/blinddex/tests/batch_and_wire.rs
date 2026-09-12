@@ -8,8 +8,11 @@ use blinddex::{
 fn toy_catalog() -> Catalog {
     let params = Params::new(16, 64, 1u64 << 32).unwrap();
     let mut cat = Catalog::new(params).unwrap();
-    cat.insert(Some("wire_transfer".into()), b"Your agent downloaded wire_transfer")
-        .unwrap();
+    cat.insert(
+        Some("wire_transfer".into()),
+        b"Your agent downloaded wire_transfer",
+    )
+    .unwrap();
     cat.insert(Some("invoice_parse".into()), b"invoice_parse skill pack")
         .unwrap();
     cat.insert(Some("calendar".into()), b"calendar.sync opaque blob")
