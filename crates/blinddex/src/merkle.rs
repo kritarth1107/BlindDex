@@ -113,10 +113,10 @@ pub fn prove_from_leaves(leaves: &[[u8; 32]], index: usize) -> Result<MerkleProo
         });
 
         let mut next = Vec::with_capacity(level.len() / 2);
-        for chunk in level.as_chunks::<2>().0 {
+        for pair in level.chunks(2) {
             let mut hasher = Sha256::new();
-            hasher.update(chunk[0]);
-            hasher.update(chunk[1]);
+            hasher.update(pair[0]);
+            hasher.update(pair[1]);
             next.push(hasher.finalize().into());
         }
         level = next;
