@@ -28,3 +28,7 @@ path = "../../examples/wire_roundtrip.rs"
 [[example]]
 name = "hint_roundtrip"
 path = "../../examples/hint_roundtrip.rs"
+
+[[example]]
+name = "bench_matvec"
+path = "../../examples/bench_matvec.rs"
