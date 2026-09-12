@@ -1,7 +1,9 @@
-//! BlindDex CLI: put / get-blind / get-blind-proven / batch-get-blind / prove / root.
+//! BlindDex CLI: put / get-blind / get-blind-proven / batch-get-blind / prove / root /
+//! hint-gen / snapshot / presets.
 
 use blinddex::{
-    proof_to_json, BlindClient, BlindServer, Catalog, Params, WireBatchProven, WireProvenRow,
+    proof_to_json, BlindClient, BlindServer, Catalog, Hint, Params, SnapshotMeta, WireBatchProven,
+    WireProvenRow,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -74,6 +76,30 @@ enum Commands {
         /// Path to catalog JSON.
         catalog: PathBuf,
     },
+    /// Generate an offline hint file for a catalog (scaffolding, not privacy).
+    HintGen {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Output path for hint JSON (default: <catalog>.hint.json).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// 32-byte seed as hex (64 chars). Random if omitted.
+        #[arg(long)]
+        seed: Option<String>,
+    },
+    /// Create or print a catalog snapshot (params + merkle root + row count).
+    Snapshot {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Write snapshot sidecar file (default: print to stdout).
+        #[arg(long)]
+        write: bool,
+        /// Optional hint seed hex to include in the snapshot.
+        #[arg(long)]
+        hint_seed: Option<String>,
+    },
+    /// List available parameter presets.
+    Presets,
 }
 
 fn main() -> ExitCode {
@@ -207,6 +233,88 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Root { catalog } => {
             let cat = Catalog::load_json(&catalog)?;
             println!("{}", cat.merkle_root_hex());
+        }
+        Commands::HintGen {
+            catalog,
+            output,
+            seed,
+        } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let seed_bytes: [u8; 32] = if let Some(hex_str) = seed {
+                let bytes = hex::decode(&hex_str)
+                    .map_err(|e| format!("invalid seed hex: {e}"))?;
+                if bytes.len() != 32 {
+                    return Err(format!("seed must be 32 bytes (64 hex chars), got {}", bytes.len()).into());
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                arr
+            } else {
+                let mut arr = [0u8; 32];
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let nanos = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                let hash = blake3::hash(&nanos.to_le_bytes());
+                arr.copy_from_slice(hash.as_bytes());
+                arr
+            };
+
+            let hint = Hint::generate(cat.params(), seed_bytes)?;
+            let out_path = output.unwrap_or_else(|| {
+                let stem = catalog
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("catalog");
+                let parent = catalog.parent().unwrap_or(std::path::Path::new("."));
+                parent.join(format!("{}.hint.json", stem))
+            });
+
+            std::fs::write(&out_path, hint.to_json()?)?;
+            println!("hint_path={}", out_path.display());
+            println!("seed={}", hint.seed_hex());
+            println!("params_fingerprint={}", hint.params_fingerprint_hex());
+            println!("hint_len={}", hint.hint_len);
+            println!("note=offline hint scaffolding; does NOT provide query privacy");
+        }
+        Commands::Snapshot {
+            catalog,
+            write,
+            hint_seed,
+        } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let snap = if let Some(hex_str) = hint_seed {
+                let bytes = hex::decode(&hex_str)
+                    .map_err(|e| format!("invalid hint_seed hex: {e}"))?;
+                if bytes.len() != 32 {
+                    return Err(format!("hint_seed must be 32 bytes (64 hex chars), got {}", bytes.len()).into());
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                SnapshotMeta::from_catalog_with_hint(&cat, &arr)
+            } else {
+                SnapshotMeta::from_catalog(&cat)
+            };
+
+            if write {
+                let sidecar = snap.write_sidecar(&catalog)?;
+                println!("snapshot_path={}", sidecar.display());
+            } else {
+                println!("{}", snap.to_json()?);
+            }
+        }
+        Commands::Presets => {
+            println!("Available parameter presets (demo sizes, NOT production LWE):\n");
+            for name in Params::preset_names() {
+                let p = Params::from_preset_name(name).unwrap();
+                println!(
+                    "  {:<8}  n_rows={:>4}  row_bytes={:>3}  modulus=2^32",
+                    name, p.n_rows, p.row_bytes
+                );
+            }
+            println!("\nUsage: blinddex put <catalog> --preset <name> ...");
+            println!("       or use Params::preset_*() in library code");
         }
     }
     Ok(())

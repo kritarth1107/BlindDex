@@ -12,6 +12,7 @@ name = "blinddex"
 path = "src/main.rs"
 
 [dependencies]
+blake3 = { workspace = true }
 blinddex = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
