@@ -142,7 +142,6 @@ impl Catalog {
         prove_from_leaves(&leaves, index)
     }
 
-
     /// Insert at the next free index. Returns the index.
     pub fn insert(&mut self, key: Option<String>, payload: &[u8]) -> Result<usize> {
         if self.next_free >= self.params.n_rows {

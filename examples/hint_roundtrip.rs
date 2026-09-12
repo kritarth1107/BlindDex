@@ -15,13 +15,20 @@ use blinddex::{BlindServer, Catalog, Hint, Params, PirEngine};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let params = Params::preset_small();
-    println!("params: n_rows={}, row_bytes={}", params.n_rows, params.row_bytes);
+    println!(
+        "params: n_rows={}, row_bytes={}",
+        params.n_rows, params.row_bytes
+    );
 
     let mut cat = Catalog::new(params)?;
     cat.insert(Some("skill_alpha".into()), b"alpha payload bytes here")?;
     cat.insert(Some("skill_beta".into()), b"beta payload for testing")?;
     cat.insert(Some("tool_gamma".into()), b"gamma opaque blob data")?;
-    println!("catalog: {} entries, root={}", cat.len(), cat.merkle_root_hex());
+    println!(
+        "catalog: {} entries, root={}",
+        cat.len(),
+        cat.merkle_root_hex()
+    );
 
     let seed = [42u8; 32];
     let hint = Hint::generate(&params, seed)?;
@@ -53,10 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let key = cat.get_key(target_index)?.unwrap_or("<none>");
         let text = String::from_utf8_lossy(&row);
         let trimmed = text.trim_end_matches('\0');
-        println!(
-            "index={} key={} payload={}",
-            target_index, key, trimmed
-        );
+        println!("index={} key={} payload={}", target_index, key, trimmed);
     }
 
     println!("\nnote: hint is scaffolding; exact query does NOT hide the index");

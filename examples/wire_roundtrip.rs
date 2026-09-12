@@ -5,9 +5,7 @@
 //!
 //! Run: `cargo run -p blinddex --example wire_roundtrip`
 
-use blinddex::{
-    BlindClient, BlindServer, Catalog, Params, WireAnswer, WireProvenRow, WireQuery,
-};
+use blinddex::{BlindClient, BlindServer, Catalog, Params, WireAnswer, WireProvenRow, WireQuery};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let params = Params::new(8, 64, 1u64 << 32)?;

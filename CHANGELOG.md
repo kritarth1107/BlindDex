@@ -5,6 +5,34 @@ All notable changes to BlindDex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-09-12
+
+### Added
+
+- **Parameter presets**: `Params::preset_tiny()`, `preset_small()`, `preset_medium()`,
+  `preset_demo()` with honest scope documentation. `from_preset_name()` for CLI.
+- **Offline hint scaffolding** (`hint` module): seeded PRNG expansion for future
+  SimplePIR offline phase. `Hint::generate(params, seed)` with JSON/bytes serde.
+  Includes params fingerprint matching. Does NOT provide query privacy.
+- **Toy noisy query**: `PirEngine::query_noisy(index, noise_budget, seed)` adds
+  modular noise to non-target coordinates. Educational only — does NOT hide index.
+  `recover_row_exact()` alias for clarity.
+- **Snapshot sealing** (`snapshot` module): `SnapshotMeta` captures params +
+  merkle root + row count for offline verification. Sidecar file support.
+- **CLI commands**: `hint-gen` (write hint file), `snapshot` (print/write meta),
+  `presets` (list available presets).
+- **Examples**: `hint_roundtrip.rs` (offline hint API demo), `bench_matvec.rs`
+  (criterion-free timing benchmark for all presets).
+- **THREAT_MODEL**: Offline hint and toy noisy query sections explaining why
+  these features do NOT provide privacy and their intended purpose.
+
+### Changed
+
+- Workspace version bumped to **0.3.0**.
+- README modules table and quickstart updated for new features.
+- Downgrade blake3 to 1.8.0 and clap to 4.5.0 for stable Rust 1.83 compatibility.
+- Use `slice::chunks()` instead of unstable `as_chunks()` for stable Rust.
+
 ## [0.2.0] — 2026-09-11
 
 ### Added
