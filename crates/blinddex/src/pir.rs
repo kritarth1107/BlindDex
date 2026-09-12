@@ -127,6 +127,81 @@ impl PirEngine {
         Ok(q)
     }
 
+    /// Build a "noisy" query for `index` (educational, NOT secure).
+    ///
+    /// # Honest scope — read carefully
+    ///
+    /// This method starts from an exact one-hot query and adds small modular
+    /// noise to other coordinates. **This does NOT hide the index from a
+    /// curious server** that can read the clear vector — the target coordinate
+    /// still has the largest magnitude.
+    ///
+    /// The purpose is to demonstrate the API shape for a future LWE layer
+    /// where real noise (sampled from a discrete Gaussian) would hide the
+    /// index. Until that layer exists, do not treat this as a privacy boundary.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The target row index.
+    /// * `noise_budget` - Maximum noise magnitude added to non-target coords
+    ///   (values are sampled uniformly in `0..noise_budget`).
+    /// * `seed` - 32-byte seed for deterministic noise (for testing).
+    ///
+    /// # Recovery
+    ///
+    /// With small `noise_budget`, the exact `recover_row` path may still work
+    /// because the noise sums are small. With large noise, recovery will fail
+    /// or return garbage — this is expected and demonstrates why real SimplePIR
+    /// needs error-correcting structure.
+    pub fn query_noisy(&self, index: usize, noise_budget: u64, seed: [u8; 32]) -> Result<Vec<u64>> {
+        if index >= self.params.n_rows {
+            return Err(BlindDexError::IndexOutOfRange {
+                index,
+                n_rows: self.params.n_rows,
+            });
+        }
+        if noise_budget == 0 {
+            return self.query_exact(index);
+        }
+
+        let mut q = vec![0u64; self.params.n_rows];
+        q[index] = 1;
+
+        let mut counter = 0u64;
+        let mut pos = 0usize;
+
+        while pos < self.params.n_rows {
+            let mut hasher = blake3::Hasher::new_keyed(&seed);
+            hasher.update(&counter.to_le_bytes());
+            let hash = hasher.finalize();
+            let bytes = hash.as_bytes();
+
+            for chunk in bytes.chunks(8) {
+                if pos >= self.params.n_rows {
+                    break;
+                }
+                if pos != index {
+                    let mut arr = [0u8; 8];
+                    arr[..chunk.len()].copy_from_slice(chunk);
+                    let noise = u64::from_le_bytes(arr) % noise_budget;
+                    q[pos] = noise % self.params.modulus;
+                }
+                pos += 1;
+            }
+            counter += 1;
+        }
+
+        Ok(q)
+    }
+
+    /// Alias for [`Self::recover_row`] — emphasizes this is the exact path.
+    ///
+    /// Use this when you want to be explicit that you're using exact recovery
+    /// (vs. a future noisy/LWE recovery path).
+    pub fn recover_row_exact(&self, answer: &[u64]) -> Result<Vec<u8>> {
+        self.recover_row(answer)
+    }
+
     /// Recover fixed-width row bytes from a matvec answer (exact path).
     pub fn recover_row(&self, answer: &[u64]) -> Result<Vec<u8>> {
         let l = self.params.limbs_per_row();
@@ -207,5 +282,105 @@ mod tests {
         pack_row_into(&row, &mut limbs, params.modulus);
         let back = unpack_row(&limbs, params.row_bytes, params.modulus);
         assert_eq!(back, row);
+    }
+
+    #[test]
+    fn query_noisy_length() {
+        let params = Params::preset_small();
+        let engine = PirEngine::new(params).unwrap();
+        let seed = [1u8; 32];
+        let q = engine.query_noisy(5, 100, seed).unwrap();
+        assert_eq!(q.len(), params.n_rows);
+    }
+
+    #[test]
+    fn query_noisy_target_is_one() {
+        let params = Params::preset_small();
+        let engine = PirEngine::new(params).unwrap();
+        let seed = [2u8; 32];
+        let index = 10;
+        let q = engine.query_noisy(index, 50, seed).unwrap();
+        assert_eq!(q[index], 1);
+    }
+
+    #[test]
+    fn query_noisy_zero_budget_is_exact() {
+        let params = Params::preset_tiny();
+        let engine = PirEngine::new(params).unwrap();
+        let seed = [3u8; 32];
+        let index = 3;
+
+        let exact = engine.query_exact(index).unwrap();
+        let noisy = engine.query_noisy(index, 0, seed).unwrap();
+        assert_eq!(exact, noisy);
+    }
+
+    #[test]
+    fn query_noisy_deterministic() {
+        let params = Params::preset_tiny();
+        let engine = PirEngine::new(params).unwrap();
+        let seed = [4u8; 32];
+
+        let a = engine.query_noisy(2, 100, seed).unwrap();
+        let b = engine.query_noisy(2, 100, seed).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn query_noisy_small_budget_recovers() {
+        let params = Params::preset_tiny();
+        let rows: Vec<Vec<u8>> = (0..params.n_rows)
+            .map(|i| {
+                let mut row = vec![0u8; params.row_bytes];
+                row[0] = i as u8;
+                row
+            })
+            .collect();
+        let db = DatabaseMatrix::from_rows(params, &rows).unwrap();
+        let engine = PirEngine::new(params).unwrap();
+
+        let index = 5;
+        let seed = [5u8; 32];
+        let q = engine.query_noisy(index, 1, seed).unwrap();
+        let answer = db.matvec(&q).unwrap();
+        let recovered = engine.recover_row(&answer).unwrap();
+
+        assert_eq!(recovered[0], index as u8);
+    }
+
+    #[test]
+    fn query_noisy_large_budget_may_fail() {
+        let params = Params::preset_tiny();
+        let rows: Vec<Vec<u8>> = (0..params.n_rows)
+            .map(|i| {
+                let mut row = vec![0u8; params.row_bytes];
+                row[0] = i as u8;
+                row
+            })
+            .collect();
+        let db = DatabaseMatrix::from_rows(params, &rows).unwrap();
+        let engine = PirEngine::new(params).unwrap();
+
+        let index = 5;
+        let seed = [6u8; 32];
+        let q = engine.query_noisy(index, 1_000_000, seed).unwrap();
+        let answer = db.matvec(&q).unwrap();
+        let recovered = engine.recover_row(&answer).unwrap();
+
+        assert_ne!(
+            recovered, rows[index],
+            "large noise should corrupt recovery"
+        );
+    }
+
+    #[test]
+    fn recover_row_exact_alias() {
+        let params = Params::preset_tiny();
+        let engine = PirEngine::new(params).unwrap();
+        let answer = vec![0u64; params.limbs_per_row()];
+
+        let a = engine.recover_row(&answer).unwrap();
+        let b = engine.recover_row_exact(&answer).unwrap();
+        assert_eq!(a, b);
     }
 }
