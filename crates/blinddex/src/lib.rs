@@ -24,6 +24,7 @@
 pub mod catalog;
 pub mod client;
 pub mod error;
+pub mod hint;
 pub mod merkle;
 pub mod params;
 pub mod pir;
@@ -33,6 +34,7 @@ pub mod wire;
 pub use catalog::{Catalog, CatalogFile, CatalogFileEntry};
 pub use client::{BlindClient, ProvenRow, MAX_BATCH_SIZE};
 pub use error::{BlindDexError, Result};
+pub use hint::{Hint, HINT_VERSION};
 pub use merkle::{MerkleProof, ProofStep, SiblingSide};
 pub use params::{
     Params, DEFAULT_MODULUS, DEFAULT_N_ROWS, DEFAULT_ROW_BYTES, MAX_N_ROWS, MAX_ROW_BYTES,
