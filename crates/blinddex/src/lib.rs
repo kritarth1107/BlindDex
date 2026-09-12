@@ -29,6 +29,7 @@ pub mod merkle;
 pub mod params;
 pub mod pir;
 pub mod server;
+pub mod snapshot;
 pub mod wire;
 
 pub use catalog::{Catalog, CatalogFile, CatalogFileEntry};
@@ -41,6 +42,7 @@ pub use params::{
 };
 pub use pir::{DatabaseMatrix, PirEngine};
 pub use server::{put_entry, BlindServer};
+pub use snapshot::{SnapshotMeta, SNAPSHOT_VERSION};
 pub use wire::{
     proof_from_json, proof_to_json, WireAnswer, WireBatchProven, WireProvenRow, WireQuery,
     WIRE_VERSION,
