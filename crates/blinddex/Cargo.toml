@@ -24,3 +24,7 @@ serde_json = { workspace = true }
 [[example]]
 name = "wire_roundtrip"
 path = "../../examples/wire_roundtrip.rs"
+
+[[example]]
+name = "hint_roundtrip"
+path = "../../examples/hint_roundtrip.rs"
