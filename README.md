@@ -16,6 +16,7 @@ This repository is a **public research slice**: a clean, tested toy of SimplePIR
 | Query privacy on the wire | Toy path uses an **exact one-hot** query for demo correctness; production SimplePIR needs **LWE noise + packing**. JSON encoding does **not** add privacy |
 | Merkle inclusion proofs | **Yes** — `prove` / `get_blind_proven` verify against a pinned root |
 | Batch retrieval | **Yes** — **multiple independent matvecs** (not packed multi-query) |
+| Public directory for keyed retrieval | **Yes** — reveals which skills exist (keys + hashes), not payloads; with LWE, hides which is *fetched* |
 | Hiding that a query happened | **No** — server sees query **size** / that a query occurred |
 | Production parameters | **No** |
 | Vector search / ANN | **No** |
@@ -28,14 +29,15 @@ See [`THREAT_MODEL.md`](THREAT_MODEL.md) and [`SECURITY.md`](SECURITY.md).
 | --- | --- |
 | `params` | Toy `Params { n_rows, row_bytes, modulus }` (`q = 2³²` by default); preset factories |
 | `catalog` | Fixed-width rows, blake3 content-addressing, SHA-256 Merkle root, `prove` / `open_leaf_hash` |
+| `directory` | Public directory for name→index resolution (keys + hashes, no payloads); seal/fingerprint |
 | `merkle` | `MerkleProof` + path verify against root |
 | `pir` | Encode DB as `Z_q` matrix; query vector; server matvec; client recover; `query_noisy` (toy) |
 | `hint` | Offline hint scaffolding: seeded PRNG expansion for future SimplePIR offline phase |
 | `snapshot` | `SnapshotMeta` for catalog sealing (params + merkle root + row count) |
-| `client` | `get_blind` / `get_blind_proven` / `get_blind_batch` |
+| `client` | `get_blind` / `get_blind_proven` / `get_blind_by_key` / `get_blind_by_hash` + proven variants |
 | `server` | Hold catalog + matrix + root; answer matvecs; `prove` / `answer_proven` |
-| `wire` | JSON codec for `WireQuery` / `WireAnswer` / `WireProvenRow` |
-| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `prove` · `root` · `hint-gen` · `snapshot` · `presets` |
+| `wire` | JSON codec for `WireQuery` / `WireAnswer` / `WireProvenRow` / `WireDirectory` |
+| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `directory` · `get-blind-key` · `get-blind-proven-key` · `get-blind-hash` · `prove` · `root` · `hint-gen` · `snapshot` · `presets` |
 
 ## Quick start
 
@@ -54,6 +56,18 @@ cargo test --workspace
 
 # Batch (comma-separated indices; one matvec each)
 ./target/release/blinddex batch-get-blind /tmp/cat.json 0,1,2
+
+# Export public directory (keys + hashes, no payloads)
+./target/release/blinddex directory /tmp/cat.json
+
+# Blind retrieve by key (resolves key→index locally)
+./target/release/blinddex get-blind-key /tmp/cat.json wire_transfer
+
+# Blind retrieve by key with Merkle proof
+./target/release/blinddex get-blind-proven-key /tmp/cat.json wire_transfer
+
+# Blind retrieve by content hash
+./target/release/blinddex get-blind-hash /tmp/cat.json <64-char-blake3-hex>
 
 # Emit inclusion proof JSON
 ./target/release/blinddex prove /tmp/cat.json 0
@@ -75,6 +89,9 @@ cargo run -p blinddex --example wire_roundtrip
 
 # Hint roundtrip demo
 cargo run -p blinddex --example hint_roundtrip
+
+# Directory + keyed retrieval demo
+cargo run -p blinddex --example directory_roundtrip
 
 # Timing benchmark
 cargo run -p blinddex --example bench_matvec --release
@@ -112,7 +129,7 @@ A thin `blinddex-host` (axum/warp) can wrap the same codec later without changin
 ## Library sketch
 
 ```rust
-use blinddex::{BlindClient, BlindServer, Catalog, Hint, Params, SnapshotMeta};
+use blinddex::{BlindClient, BlindServer, Catalog, Directory, Hint, Params, SnapshotMeta};
 
 // Use a preset or custom params
 let params = Params::preset_small(); // or Params::new(16, 64, 1u64 << 32)?
@@ -128,6 +145,19 @@ assert_eq!(server.merkle_root_hex(), root);
 
 let batch = client.get_blind_batch(&server, &[0, 1])?;
 assert_eq!(batch.len(), 2);
+
+// Public directory for name→index resolution
+let dir = cat.export_directory();
+assert_eq!(dir.resolve_key("wire_transfer"), Some(0));
+let seal = dir.seal_hex();
+assert!(dir.verify_seal_hex(&seal));
+
+// Keyed retrieval via directory (production pattern)
+let proven = client.get_blind_proven_by_key_dir(&dir, &server, "wire_transfer")?;
+assert_eq!(&proven.row[..11], b"skill bytes");
+
+// Local demo: keyed retrieval via server.catalog()
+let row = client.get_blind_by_key(&server, "wire_transfer")?;
 
 // Offline hint scaffolding (not privacy, just API shape)
 let seed = [42u8; 32];
@@ -147,6 +177,7 @@ crates/blinddex-cli/      # `blinddex` binary
 examples/
   wire_roundtrip.rs       # JSON codec demo
   hint_roundtrip.rs       # offline hint API demo
+  directory_roundtrip.rs  # directory + keyed retrieval demo
   bench_matvec.rs         # timing benchmark
 fixtures/catalog_toy.json
 THREAT_MODEL.md

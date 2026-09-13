@@ -88,6 +88,58 @@ The noisy query demonstrates:
 - The API shape for a future LWE query layer.
 - Why production PIR needs error-correcting structure.
 
+## Public directories (v0.4)
+
+A **Directory** is a public listing of catalog entry metadata: indices, optional
+keys (skill/tool names), blake3 content hashes, and SHA-256 leaf hashes. The
+directory does NOT include payloads.
+
+### What directories reveal
+
+Publishing a directory **reveals which skills exist**:
+
+- All entry keys (e.g., `"wire_transfer"`, `"calendar"`)
+- All content hashes (blake3 of normalized row bytes)
+- All leaf hashes (SHA-256 for Merkle proof verification)
+- The Merkle root and catalog parameters
+
+An observer who sees the directory learns the full list of available skills.
+This is intentional: the directory is meant to be public.
+
+### What directories do NOT reveal
+
+With a future **LWE query layer**, the directory enables a privacy-preserving
+workflow:
+
+1. Client downloads the public directory.
+2. Client resolves `"wire_transfer"` → index 3 locally.
+3. Client issues a **blind PIR query** for index 3.
+4. Server cannot determine which index was requested.
+
+In this model, the directory reveals **what exists** but not **what was fetched**.
+
+### Seal and pinning
+
+`Directory::seal()` computes a blake3 fingerprint over the canonical JSON of
+entries + merkle root. A client can:
+
+- Pin a known seal to detect directory changes between epochs.
+- Verify that a downloaded directory matches an expected seal.
+- Reject tampered directories before resolving keys.
+
+The seal does NOT authenticate the directory's origin — that requires out-of-band
+trust (e.g., HTTPS to a known host, signed metadata).
+
+### Current limitations (v0.4)
+
+- **Toy PIR path still reveals the index.** The exact one-hot query lets the
+  server learn which index was requested. The directory workflow is useful
+  now for local demos and will provide real privacy once LWE queries exist.
+- **Directory authenticity is out of band.** The seal binds content but not
+  origin; clients must obtain directories via trusted channels.
+- **Key→index resolution is local.** The client must have the full directory
+  to resolve keys; there is no private directory lookup.
+
 ## Intended evolution
 
 1. Replace exact queries with LWE / SimplePIR-style noisy queries.
