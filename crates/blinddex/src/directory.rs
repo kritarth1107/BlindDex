@@ -99,6 +99,16 @@ pub struct Directory {
     pub entries: Vec<DirectoryEntry>,
 }
 
+/// Canonical representation of directory data for seal computation.
+///
+/// The seal is computed over this structure to ensure deterministic hashing
+/// regardless of JSON formatting options.
+#[derive(Debug, Clone, Serialize)]
+struct SealInput<'a> {
+    merkle_root: &'a str,
+    entries: &'a [DirectoryEntry],
+}
+
 impl Directory {
     /// Build a directory from a catalog.
     ///
@@ -135,6 +145,54 @@ impl Directory {
             merkle_root: catalog.merkle_root_hex(),
             entries,
         }
+    }
+
+    /// Compute a seal (fingerprint) over the directory's canonical content.
+    ///
+    /// The seal is a blake3 hash of the canonical JSON representation of:
+    /// - `merkle_root`
+    /// - `entries` (in order, with all fields)
+    ///
+    /// A client can pin this seal to detect directory changes across epochs.
+    /// The seal is stable for the same directory content regardless of JSON
+    /// formatting differences (pretty vs compact).
+    ///
+    /// Returns the seal as a 32-byte array.
+    pub fn seal(&self) -> [u8; 32] {
+        let input = SealInput {
+            merkle_root: &self.merkle_root,
+            entries: &self.entries,
+        };
+        let canonical = serde_json::to_string(&input).expect("seal input is always serializable");
+        *blake3::hash(canonical.as_bytes()).as_bytes()
+    }
+
+    /// Compute the seal as lowercase hex (64 chars).
+    pub fn seal_hex(&self) -> String {
+        hex::encode(self.seal())
+    }
+
+    /// Verify that this directory matches an expected seal.
+    ///
+    /// Returns `true` if the computed seal equals the expected seal.
+    pub fn verify_seal(&self, expected_seal: &[u8; 32]) -> bool {
+        self.seal() == *expected_seal
+    }
+
+    /// Verify that this directory matches an expected seal (hex).
+    ///
+    /// Returns `true` if the computed seal equals the expected seal.
+    /// Returns `false` if the hex is invalid or doesn't match.
+    pub fn verify_seal_hex(&self, expected_seal_hex: &str) -> bool {
+        let Ok(bytes) = hex::decode(expected_seal_hex) else {
+            return false;
+        };
+        if bytes.len() != 32 {
+            return false;
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&bytes);
+        self.verify_seal(&arr)
     }
 
     /// Number of entries in the directory.
@@ -269,5 +327,59 @@ mod tests {
         assert_eq!(dir.params.n_rows, cat.params().n_rows);
         assert_eq!(dir.params.row_bytes, cat.params().row_bytes);
         assert_eq!(dir.params.modulus, cat.params().modulus);
+    }
+
+    #[test]
+    fn seal_is_stable() {
+        let cat = make_test_catalog();
+        let dir1 = Directory::from_catalog(&cat);
+        let dir2 = Directory::from_catalog(&cat);
+
+        assert_eq!(dir1.seal(), dir2.seal());
+        assert_eq!(dir1.seal_hex(), dir2.seal_hex());
+        assert_eq!(dir1.seal_hex().len(), 64);
+    }
+
+    #[test]
+    fn seal_changes_with_content() {
+        let params = Params::preset_tiny();
+        let mut cat1 = Catalog::new(params).unwrap();
+        cat1.insert(Some("skill_a".into()), b"payload a").unwrap();
+        let dir1 = Directory::from_catalog(&cat1);
+
+        let mut cat2 = Catalog::new(params).unwrap();
+        cat2.insert(Some("skill_b".into()), b"payload b").unwrap();
+        let dir2 = Directory::from_catalog(&cat2);
+
+        assert_ne!(dir1.seal(), dir2.seal());
+    }
+
+    #[test]
+    fn verify_seal_works() {
+        let cat = make_test_catalog();
+        let dir = Directory::from_catalog(&cat);
+        let seal = dir.seal();
+        let seal_hex = dir.seal_hex();
+
+        assert!(dir.verify_seal(&seal));
+        assert!(dir.verify_seal_hex(&seal_hex));
+
+        let wrong_seal = [0u8; 32];
+        assert!(!dir.verify_seal(&wrong_seal));
+        assert!(!dir.verify_seal_hex("invalid_hex"));
+        assert!(!dir.verify_seal_hex(&hex::encode([0u8; 32])));
+    }
+
+    #[test]
+    fn seal_survives_json_roundtrip() {
+        let cat = make_test_catalog();
+        let dir = Directory::from_catalog(&cat);
+        let original_seal = dir.seal();
+
+        let json = dir.to_json().unwrap();
+        let dir2 = Directory::from_json(&json).unwrap();
+
+        assert_eq!(dir2.seal(), original_seal);
+        assert!(dir2.verify_seal(&original_seal));
     }
 }
