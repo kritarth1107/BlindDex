@@ -5,6 +5,7 @@
 //! every slot `0..n_rows` (including empty ones), so the commitment covers the
 //! full capacity.
 
+use crate::directory::Directory;
 use crate::error::{BlindDexError, Result};
 use crate::merkle::{prove_from_leaves, MerkleProof};
 use crate::params::Params;
@@ -289,6 +290,17 @@ impl Catalog {
         let text = serde_json::to_string_pretty(&file)?;
         std::fs::write(path, text)?;
         Ok(())
+    }
+
+    /// Export a public directory for name→index resolution.
+    ///
+    /// The directory contains entry metadata (index, key, content_hash, leaf_hash)
+    /// but NOT the actual payloads. A client downloads this directory, resolves
+    /// a key or hash to an index locally, then issues a PIR query by index.
+    ///
+    /// See [`Directory`] and `THREAT_MODEL.md` for the privacy model.
+    pub fn export_directory(&self) -> Directory {
+        Directory::from_catalog(self)
     }
 }
 
