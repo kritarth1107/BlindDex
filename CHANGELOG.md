@@ -5,6 +5,37 @@ All notable changes to BlindDex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-09-13
+
+### Added
+
+- **Public directory** (`directory` module): `Directory` and `DirectoryEntry` types
+  for name→index resolution. The directory contains entry metadata (index, key,
+  content hash, leaf hash) but NOT payloads. Clients download the directory,
+  resolve keys locally, then issue PIR queries by index.
+- **Directory seal/fingerprint**: `Directory::seal()` computes a blake3 hash over
+  canonical JSON of entries + merkle root. `verify_seal()` / `verify_seal_hex()`
+  let clients pin a directory epoch and detect changes.
+- **Keyed blind retrieval** (`client` module):
+  - `get_blind_by_key_dir` / `get_blind_proven_by_key_dir` — resolve via Directory
+  - `get_blind_by_hash_dir` / `get_blind_proven_by_hash_dir` — resolve via Directory
+  - `get_blind_by_key` / `get_blind_proven_by_key` — local demo via server.catalog()
+- **Wire directory types** (`wire` module): `WireDirectory` and `WireDirectoryEntry`
+  for JSON interchange. Includes embedded seal for integrity verification.
+- **Catalog export**: `Catalog::export_directory()` thin wrapper for convenience.
+- **CLI commands**: `directory` (export JSON), `get-blind-key`, `get-blind-proven-key`,
+  `get-blind-hash` (with `--proven` flag).
+- **Example**: `directory_roundtrip.rs` demonstrating directory export, seal
+  verification, and keyed retrieval patterns.
+- **THREAT_MODEL**: New "Public directories" section explaining what is revealed
+  (keys + hashes) vs hidden (which skill was fetched, with future LWE).
+
+### Changed
+
+- Workspace version bumped to **0.4.0**.
+- README updated with directory module, keyed retrieval quickstart, and privacy notes.
+- Client module documentation updated for keyed retrieval methods.
+
 ## [0.3.0] — 2026-09-12
 
 ### Added

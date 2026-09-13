@@ -292,7 +292,12 @@ impl WireDirectory {
                 modulus: self.modulus,
             },
             merkle_root: self.merkle_root.clone(),
-            entries: self.entries.iter().cloned().map(DirectoryEntry::from).collect(),
+            entries: self
+                .entries
+                .iter()
+                .cloned()
+                .map(DirectoryEntry::from)
+                .collect(),
         }
     }
 

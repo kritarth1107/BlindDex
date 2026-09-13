@@ -1,14 +1,15 @@
 //! Tests for directory export and keyed blind retrieval.
 
-use blinddex::{
-    BlindClient, BlindServer, Catalog, Directory, Params, WireDirectory,
-};
+use blinddex::{BlindClient, BlindServer, Catalog, Directory, Params, WireDirectory};
 
 fn make_test_catalog() -> Catalog {
     let params = Params::preset_tiny();
     let mut cat = Catalog::new(params).unwrap();
-    cat.insert(Some("wire_transfer".into()), b"skill bytes for wire transfer")
-        .unwrap();
+    cat.insert(
+        Some("wire_transfer".into()),
+        b"skill bytes for wire transfer",
+    )
+    .unwrap();
     cat.insert(Some("calendar".into()), b"calendar sync payload")
         .unwrap();
     cat.insert(Some("email".into()), b"email handler").unwrap();

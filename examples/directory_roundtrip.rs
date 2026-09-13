@@ -13,7 +13,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build a toy catalog
     let params = Params::preset_tiny();
     let mut cat = Catalog::new(params)?;
-    cat.insert(Some("wire_transfer".into()), b"skill bytes for wire transfer")?;
+    cat.insert(
+        Some("wire_transfer".into()),
+        b"skill bytes for wire transfer",
+    )?;
     cat.insert(Some("calendar".into()), b"calendar sync payload")?;
     cat.insert(Some("email".into()), b"email handler code")?;
     cat.insert(None, b"anonymous payload without key")?;
