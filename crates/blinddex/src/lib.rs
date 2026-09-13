@@ -46,6 +46,6 @@ pub use pir::{DatabaseMatrix, PirEngine};
 pub use server::{put_entry, BlindServer};
 pub use snapshot::{SnapshotMeta, SNAPSHOT_VERSION};
 pub use wire::{
-    proof_from_json, proof_to_json, WireAnswer, WireBatchProven, WireProvenRow, WireQuery,
-    WIRE_VERSION,
+    proof_from_json, proof_to_json, WireAnswer, WireBatchProven, WireDirectory, WireDirectoryEntry,
+    WireProvenRow, WireQuery, WIRE_VERSION,
 };
