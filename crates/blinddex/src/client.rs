@@ -1,6 +1,28 @@
 //! Thin client wrapper: build PIR queries and recover rows.
+//!
+//! # Keyed retrieval
+//!
+//! In addition to index-based retrieval, the client supports keyed and
+//! hash-keyed retrieval via a [`Directory`] or local catalog:
+//!
+//! - [`BlindClient::get_blind_by_key`] / [`BlindClient::get_blind_proven_by_key`]
+//! - [`BlindClient::get_blind_by_hash`] / [`BlindClient::get_blind_proven_by_hash`]
+//!
+//! These methods resolve a key or hash to an index, then issue a PIR query.
+//! The resolution step is local — it does NOT reveal the key to the server.
+//!
+//! # Directory vs local catalog
+//!
+//! For **production** use, clients should resolve keys via a published
+//! [`Directory`] downloaded out-of-band. The directory contains only metadata
+//! (keys, hashes, indices) — not payloads — and can be pinned via its seal.
+//!
+//! For **local demos**, the client can resolve via `server.catalog()` directly.
+//! This is convenient for testing but not representative of a real deployment
+//! where the catalog payloads are not available to the client.
 
 use crate::catalog::Catalog;
+use crate::directory::Directory;
 use crate::error::{BlindDexError, Result};
 use crate::merkle::MerkleProof;
 use crate::pir::{DatabaseMatrix, PirEngine};
@@ -106,6 +128,12 @@ impl BlindClient {
     ///
     /// Hash→index resolution uses the client's committed catalog copy; the
     /// blind fetch still goes through PIR.
+    ///
+    /// # Note
+    ///
+    /// This method is for **local demos** where the client has access to the
+    /// catalog. For production use, prefer [`Self::get_blind_by_hash_dir`]
+    /// with a published [`Directory`].
     pub fn get_blind_by_hash(
         &self,
         local: &Catalog,
@@ -114,6 +142,120 @@ impl BlindClient {
     ) -> Result<Vec<u8>> {
         let (index, _) = local.get_by_hash(hash)?;
         self.get_blind(server, index)
+    }
+
+    /// Resolve a key to an index via a [`Directory`], then blind retrieve.
+    ///
+    /// Key→index resolution is local (the key is NOT sent to the server).
+    /// The PIR query only reveals the index to the server (in the toy path)
+    /// or nothing (with a future LWE query layer).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::KeyNotFound`] if the key is not in the directory.
+    pub fn get_blind_by_key_dir(
+        &self,
+        directory: &Directory,
+        server: &BlindServer,
+        key: &str,
+    ) -> Result<Vec<u8>> {
+        let index = directory.resolve_key(key).ok_or_else(|| BlindDexError::KeyNotFound {
+            key: key.to_string(),
+        })?;
+        self.get_blind(server, index)
+    }
+
+    /// Resolve a key to an index via a [`Directory`], then blind retrieve with proof.
+    ///
+    /// Key→index resolution is local (the key is NOT sent to the server).
+    /// The returned [`ProvenRow`] includes a Merkle inclusion proof verified
+    /// against the server's published root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::KeyNotFound`] if the key is not in the directory.
+    pub fn get_blind_proven_by_key_dir(
+        &self,
+        directory: &Directory,
+        server: &BlindServer,
+        key: &str,
+    ) -> Result<ProvenRow> {
+        let index = directory.resolve_key(key).ok_or_else(|| BlindDexError::KeyNotFound {
+            key: key.to_string(),
+        })?;
+        self.get_blind_proven(server, index)
+    }
+
+    /// Resolve a content hash to an index via a [`Directory`], then blind retrieve.
+    ///
+    /// Hash→index resolution is local (the hash is NOT sent to the server).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::HashNotFound`] if the hash is not in the directory.
+    pub fn get_blind_by_hash_dir(
+        &self,
+        directory: &Directory,
+        server: &BlindServer,
+        hash: &str,
+    ) -> Result<Vec<u8>> {
+        let index = directory.resolve_hash(hash).ok_or_else(|| BlindDexError::HashNotFound {
+            hash: hash.to_string(),
+        })?;
+        self.get_blind(server, index)
+    }
+
+    /// Resolve a content hash to an index via a [`Directory`], then blind retrieve with proof.
+    ///
+    /// Hash→index resolution is local (the hash is NOT sent to the server).
+    /// The returned [`ProvenRow`] includes a Merkle inclusion proof verified
+    /// against the server's published root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::HashNotFound`] if the hash is not in the directory.
+    pub fn get_blind_proven_by_hash_dir(
+        &self,
+        directory: &Directory,
+        server: &BlindServer,
+        hash: &str,
+    ) -> Result<ProvenRow> {
+        let index = directory.resolve_hash(hash).ok_or_else(|| BlindDexError::HashNotFound {
+            hash: hash.to_string(),
+        })?;
+        self.get_blind_proven(server, index)
+    }
+
+    /// Resolve a key to an index via the server's catalog, then blind retrieve.
+    ///
+    /// # Note
+    ///
+    /// This method is for **local demos** where the client has in-process access
+    /// to the server's catalog. A real remote client would not have this access;
+    /// use [`Self::get_blind_by_key_dir`] with a published [`Directory`] instead.
+    pub fn get_blind_by_key(
+        &self,
+        server: &BlindServer,
+        key: &str,
+    ) -> Result<Vec<u8>> {
+        let (index, _) = server.catalog().get_by_key(key)?;
+        self.get_blind(server, index)
+    }
+
+    /// Resolve a key to an index via the server's catalog, then blind retrieve with proof.
+    ///
+    /// # Note
+    ///
+    /// This method is for **local demos** where the client has in-process access
+    /// to the server's catalog. A real remote client would not have this access;
+    /// use [`Self::get_blind_proven_by_key_dir`] with a published [`Directory`] instead.
+    pub fn get_blind_proven_by_key(
+        &self,
+        server: &BlindServer,
+        key: &str,
+    ) -> Result<ProvenRow> {
+        let (index, _) = server.catalog().get_by_key(key)?;
+        self.get_blind_proven(server, index)
     }
 
     /// Local (non-network) retrieve against a matrix — used by tests.
