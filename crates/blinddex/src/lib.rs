@@ -23,6 +23,7 @@
 
 pub mod catalog;
 pub mod client;
+pub mod directory;
 pub mod error;
 pub mod hint;
 pub mod merkle;
@@ -34,6 +35,7 @@ pub mod wire;
 
 pub use catalog::{Catalog, CatalogFile, CatalogFileEntry};
 pub use client::{BlindClient, ProvenRow, MAX_BATCH_SIZE};
+pub use directory::{Directory, DirectoryEntry, DirectoryParams, DIRECTORY_VERSION};
 pub use error::{BlindDexError, Result};
 pub use hint::{Hint, HINT_VERSION};
 pub use merkle::{MerkleProof, ProofStep, SiblingSide};
