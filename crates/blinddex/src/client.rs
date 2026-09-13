@@ -159,9 +159,11 @@ impl BlindClient {
         server: &BlindServer,
         key: &str,
     ) -> Result<Vec<u8>> {
-        let index = directory.resolve_key(key).ok_or_else(|| BlindDexError::KeyNotFound {
-            key: key.to_string(),
-        })?;
+        let index = directory
+            .resolve_key(key)
+            .ok_or_else(|| BlindDexError::KeyNotFound {
+                key: key.to_string(),
+            })?;
         self.get_blind(server, index)
     }
 
@@ -180,9 +182,11 @@ impl BlindClient {
         server: &BlindServer,
         key: &str,
     ) -> Result<ProvenRow> {
-        let index = directory.resolve_key(key).ok_or_else(|| BlindDexError::KeyNotFound {
-            key: key.to_string(),
-        })?;
+        let index = directory
+            .resolve_key(key)
+            .ok_or_else(|| BlindDexError::KeyNotFound {
+                key: key.to_string(),
+            })?;
         self.get_blind_proven(server, index)
     }
 
@@ -199,9 +203,11 @@ impl BlindClient {
         server: &BlindServer,
         hash: &str,
     ) -> Result<Vec<u8>> {
-        let index = directory.resolve_hash(hash).ok_or_else(|| BlindDexError::HashNotFound {
-            hash: hash.to_string(),
-        })?;
+        let index = directory
+            .resolve_hash(hash)
+            .ok_or_else(|| BlindDexError::HashNotFound {
+                hash: hash.to_string(),
+            })?;
         self.get_blind(server, index)
     }
 
@@ -220,9 +226,11 @@ impl BlindClient {
         server: &BlindServer,
         hash: &str,
     ) -> Result<ProvenRow> {
-        let index = directory.resolve_hash(hash).ok_or_else(|| BlindDexError::HashNotFound {
-            hash: hash.to_string(),
-        })?;
+        let index = directory
+            .resolve_hash(hash)
+            .ok_or_else(|| BlindDexError::HashNotFound {
+                hash: hash.to_string(),
+            })?;
         self.get_blind_proven(server, index)
     }
 
@@ -233,11 +241,7 @@ impl BlindClient {
     /// This method is for **local demos** where the client has in-process access
     /// to the server's catalog. A real remote client would not have this access;
     /// use [`Self::get_blind_by_key_dir`] with a published [`Directory`] instead.
-    pub fn get_blind_by_key(
-        &self,
-        server: &BlindServer,
-        key: &str,
-    ) -> Result<Vec<u8>> {
+    pub fn get_blind_by_key(&self, server: &BlindServer, key: &str) -> Result<Vec<u8>> {
         let (index, _) = server.catalog().get_by_key(key)?;
         self.get_blind(server, index)
     }
@@ -249,11 +253,7 @@ impl BlindClient {
     /// This method is for **local demos** where the client has in-process access
     /// to the server's catalog. A real remote client would not have this access;
     /// use [`Self::get_blind_proven_by_key_dir`] with a published [`Directory`] instead.
-    pub fn get_blind_proven_by_key(
-        &self,
-        server: &BlindServer,
-        key: &str,
-    ) -> Result<ProvenRow> {
+    pub fn get_blind_proven_by_key(&self, server: &BlindServer, key: &str) -> Result<ProvenRow> {
         let (index, _) = server.catalog().get_by_key(key)?;
         self.get_blind_proven(server, index)
     }

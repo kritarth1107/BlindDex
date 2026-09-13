@@ -306,7 +306,10 @@ mod tests {
         let row0 = cat.get(0).unwrap();
         let hash0 = Catalog::content_hash(row0);
         assert_eq!(dir.resolve_hash(&hash0), Some(0));
-        assert_eq!(dir.resolve_hash("0000000000000000000000000000000000000000000000000000000000000000"), None);
+        assert_eq!(
+            dir.resolve_hash("0000000000000000000000000000000000000000000000000000000000000000"),
+            None
+        );
     }
 
     #[test]
