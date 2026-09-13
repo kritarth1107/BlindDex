@@ -1,9 +1,9 @@
 //! BlindDex CLI: put / get-blind / get-blind-proven / batch-get-blind / prove / root /
-//! hint-gen / snapshot / presets.
+//! directory / get-blind-key / get-blind-proven-key / get-blind-hash / hint-gen / snapshot / presets.
 
 use blinddex::{
     proof_to_json, BlindClient, BlindServer, Catalog, Hint, Params, SnapshotMeta, WireBatchProven,
-    WireProvenRow,
+    WireDirectory, WireProvenRow,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -75,6 +75,44 @@ enum Commands {
     Root {
         /// Path to catalog JSON.
         catalog: PathBuf,
+    },
+    /// Export a public directory for name→index resolution.
+    Directory {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Output path for directory JSON (default: print to stdout).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Emit WireDirectory JSON (includes seal).
+        #[arg(long)]
+        wire: bool,
+    },
+    /// Retrieve a row by key via toy PIR (resolves key→index locally).
+    GetBlindKey {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Entry key (e.g. skill name).
+        key: String,
+    },
+    /// Retrieve a row by key with Merkle proof verification.
+    GetBlindProvenKey {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Entry key (e.g. skill name).
+        key: String,
+        /// Emit a WireProvenRow JSON blob instead of human text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Retrieve a row by blake3 content hash via toy PIR.
+    GetBlindHash {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Blake3 content hash (64-char hex).
+        hash: String,
+        /// Emit a WireProvenRow JSON blob with proof.
+        #[arg(long)]
+        proven: bool,
     },
     /// Generate an offline hint file for a catalog (scaffolding, not privacy).
     HintGen {
@@ -233,6 +271,104 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Root { catalog } => {
             let cat = Catalog::load_json(&catalog)?;
             println!("{}", cat.merkle_root_hex());
+        }
+        Commands::Directory {
+            catalog,
+            output,
+            wire,
+        } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let dir = cat.export_directory();
+
+            let json = if wire {
+                let wire_dir = WireDirectory::from_directory(&dir);
+                wire_dir.to_json()?
+            } else {
+                dir.to_json()?
+            };
+
+            if let Some(out_path) = output {
+                std::fs::write(&out_path, &json)?;
+                println!("directory_path={}", out_path.display());
+            } else {
+                println!("{json}");
+            }
+            println!("entries={}", dir.len());
+            println!("merkle_root={}", dir.merkle_root);
+            println!("seal={}", dir.seal_hex());
+            println!("note=directory reveals which skills exist; not which is fetched");
+        }
+        Commands::GetBlindKey { catalog, key } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let server = BlindServer::from_catalog(&cat)?;
+            let client = BlindClient::new(&cat)?;
+
+            let row = client.get_blind_by_key(&server, &key)?;
+            let (index, _) = server.catalog().get_by_key(&key)?;
+            let text = String::from_utf8_lossy(&row);
+            let trimmed = text.trim_end_matches('\0');
+            println!("key={key}");
+            println!("index={index}");
+            println!("payload={trimmed}");
+            println!("content_hash={}", Catalog::content_hash(&row));
+            println!("merkle_root={}", server.merkle_root_hex());
+        }
+        Commands::GetBlindProvenKey { catalog, key, json } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let server = BlindServer::from_catalog(&cat)?;
+            let client = BlindClient::new(&cat)?;
+
+            let proven = client.get_blind_proven_by_key(&server, &key)?;
+
+            if json {
+                let wire = WireProvenRow::new(
+                    proven.index,
+                    &proven.row,
+                    &server.merkle_root(),
+                    proven.proof,
+                );
+                println!("{}", wire.to_json()?);
+            } else {
+                let text = String::from_utf8_lossy(&proven.row);
+                let trimmed = text.trim_end_matches('\0');
+                println!("key={key}");
+                println!("index={}", proven.index);
+                println!("payload={trimmed}");
+                println!("leaf_hash={}", proven.proof.leaf_hash_hex());
+                println!("merkle_root={}", server.merkle_root_hex());
+                println!("proof_ok=true");
+            }
+        }
+        Commands::GetBlindHash {
+            catalog,
+            hash,
+            proven,
+        } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let server = BlindServer::from_catalog(&cat)?;
+            let client = BlindClient::new(&cat)?;
+
+            let hash_lower = hash.to_lowercase();
+            let (index, _) = cat.get_by_hash(&hash_lower)?;
+
+            if proven {
+                let result = client.get_blind_proven(&server, index)?;
+                let wire = WireProvenRow::new(
+                    result.index,
+                    &result.row,
+                    &server.merkle_root(),
+                    result.proof,
+                );
+                println!("{}", wire.to_json()?);
+            } else {
+                let row = client.get_blind(&server, index)?;
+                let text = String::from_utf8_lossy(&row);
+                let trimmed = text.trim_end_matches('\0');
+                println!("hash={hash_lower}");
+                println!("index={index}");
+                println!("payload={trimmed}");
+                println!("merkle_root={}", server.merkle_root_hex());
+            }
         }
         Commands::HintGen {
             catalog,
