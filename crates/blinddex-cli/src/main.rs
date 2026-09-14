@@ -1,9 +1,10 @@
 //! BlindDex CLI: put / get-blind / get-blind-proven / batch-get-blind / prove / root /
-//! directory / get-blind-key / get-blind-proven-key / get-blind-hash / hint-gen / snapshot / presets.
+//! directory / get-blind-key / get-blind-proven-key / get-blind-hash / hint-gen / snapshot /
+//! sync-check / presets.
 
 use blinddex::{
-    proof_to_json, BlindClient, BlindServer, Catalog, Hint, Params, SnapshotMeta, WireBatchProven,
-    WireDirectory, WireProvenRow,
+    proof_to_json, BlindClient, BlindServer, Catalog, Hint, Params, PinnedEpoch, SnapshotMeta,
+    SyncOffer, WireBatchProven, WireDirectory, WireProvenRow, WireSyncOffer,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -138,6 +139,31 @@ enum Commands {
     },
     /// List available parameter presets.
     Presets,
+    /// Check catalog against expected seal/root or a sync-offer JSON.
+    SyncCheck {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Expected directory seal (64-char hex).
+        #[arg(long)]
+        seal: Option<String>,
+        /// Expected merkle root (64-char hex).
+        #[arg(long)]
+        root: Option<String>,
+        /// Path to sync-offer JSON file to verify against.
+        #[arg(long)]
+        offer: Option<PathBuf>,
+        /// Emit WireSyncOffer JSON for the catalog.
+        #[arg(long)]
+        emit: bool,
+    },
+    /// Emit a SyncOffer JSON for a catalog.
+    SyncOffer {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Output path for sync-offer JSON (default: print to stdout).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -458,6 +484,73 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!("\nUsage: blinddex put <catalog> --preset <name> ...");
             println!("       or use Params::preset_*() in library code");
+        }
+        Commands::SyncCheck {
+            catalog,
+            seal,
+            root,
+            offer,
+            emit,
+        } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let dir = cat.export_directory();
+            let actual_offer = SyncOffer::from_catalog(&cat);
+
+            if emit {
+                let wire = WireSyncOffer::from_sync_offer(&actual_offer);
+                println!("{}", wire.to_json()?);
+                return Ok(());
+            }
+
+            let pinned = if let Some(offer_path) = offer {
+                let offer_json = std::fs::read_to_string(&offer_path)?;
+                let wire_offer = WireSyncOffer::from_json(&offer_json)?;
+                let remote_offer = wire_offer.to_sync_offer();
+                PinnedEpoch::new(&remote_offer.merkle_root, &remote_offer.directory_seal)
+                    .with_params_fingerprint(&remote_offer.params_fingerprint)
+                    .with_row_count(remote_offer.row_count)
+            } else if seal.is_some() || root.is_some() {
+                let expected_seal = seal.unwrap_or_else(|| dir.seal_hex());
+                let expected_root = root.unwrap_or_else(|| dir.merkle_root.clone());
+                PinnedEpoch::new(&expected_root, &expected_seal)
+            } else {
+                println!("catalog_merkle_root={}", cat.merkle_root_hex());
+                println!("catalog_seal={}", dir.seal_hex());
+                println!("catalog_row_count={}", cat.len());
+                println!("catalog_params_fingerprint={}", actual_offer.params_fingerprint);
+                println!("note=use --seal and --root to verify, or --offer to compare with remote");
+                return Ok(());
+            };
+
+            match actual_offer.verify(&pinned) {
+                Ok(()) => {
+                    println!("sync_check=PASS");
+                    println!("merkle_root={}", actual_offer.merkle_root);
+                    println!("directory_seal={}", actual_offer.directory_seal);
+                    println!("row_count={}", actual_offer.row_count);
+                }
+                Err(e) => {
+                    eprintln!("sync_check=FAIL");
+                    eprintln!("error={}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        Commands::SyncOffer { catalog, output } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let offer = SyncOffer::from_catalog(&cat);
+            let wire = WireSyncOffer::from_sync_offer(&offer);
+            let json = wire.to_json()?;
+
+            if let Some(out_path) = output {
+                std::fs::write(&out_path, &json)?;
+                println!("sync_offer_path={}", out_path.display());
+            } else {
+                println!("{json}");
+            }
+            println!("merkle_root={}", offer.merkle_root);
+            println!("directory_seal={}", offer.directory_seal);
+            println!("row_count={}", offer.row_count);
         }
     }
     Ok(())
