@@ -355,7 +355,7 @@ mod tests {
         let offer = SyncOffer::from_catalog(&cat);
         let dir = cat.export_directory();
 
-        let pinned = PinnedEpoch::new(&dir.merkle_root, &dir.seal_hex());
+        let pinned = PinnedEpoch::new(&dir.merkle_root, dir.seal_hex());
         assert!(offer.verify(&pinned).is_ok());
     }
 
