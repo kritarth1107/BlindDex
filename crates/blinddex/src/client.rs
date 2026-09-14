@@ -20,6 +20,12 @@
 //! For **local demos**, the client can resolve via `server.catalog()` directly.
 //! This is convenient for testing but not representative of a real deployment
 //! where the catalog payloads are not available to the client.
+//!
+//! # Epoch binding
+//!
+//! Clients can pin an epoch (merkle root + directory seal) and verify that
+//! answers come from the expected catalog state. Use [`BlindClient::verify_answer_epoch`]
+//! or the epoch-bound retrieval methods to reject answers from different epochs.
 
 use crate::catalog::Catalog;
 use crate::directory::Directory;
@@ -27,6 +33,8 @@ use crate::error::{BlindDexError, Result};
 use crate::merkle::MerkleProof;
 use crate::pir::{DatabaseMatrix, PirEngine};
 use crate::server::BlindServer;
+use crate::sync::PinnedEpoch;
+use crate::wire::WireAnswer;
 
 /// Maximum indices accepted by [`BlindClient::get_blind_batch`] in this toy slice.
 pub const MAX_BATCH_SIZE: usize = 16;
@@ -266,5 +274,112 @@ impl BlindClient {
     /// Borrow the underlying PIR engine.
     pub fn engine(&self) -> &PirEngine {
         &self.engine
+    }
+
+    /// Verify that a wire answer's epoch fields match a pinned expectation.
+    ///
+    /// Returns `Ok(())` if the answer has no epoch fields or they match.
+    /// Returns [`BlindDexError::EpochMismatch`] if any field doesn't match.
+    pub fn verify_answer_epoch(&self, answer: &WireAnswer, pinned: &PinnedEpoch) -> Result<()> {
+        answer.verify_epoch(&pinned.directory_seal, &pinned.merkle_root)
+    }
+
+    /// Blind retrieval with epoch verification.
+    ///
+    /// Issues a PIR query with epoch fields attached, then verifies the
+    /// answer's epoch fields match the pinned expectation.
+    ///
+    /// # Arguments
+    ///
+    /// * `server` - The PIR server
+    /// * `index` - Row index to retrieve
+    /// * `pinned` - Expected epoch (seal + merkle root)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::EpochMismatch`] if the server's epoch differs.
+    pub fn get_blind_epoch(
+        &self,
+        server: &BlindServer,
+        index: usize,
+        pinned: &PinnedEpoch,
+    ) -> Result<Vec<u8>> {
+        let query_limbs = self.engine.query_exact(index)?;
+        let wire_query = crate::wire::WireQuery::new(*server.catalog().params(), query_limbs)
+            .with_epoch(&pinned.directory_seal, &pinned.merkle_root);
+
+        let wire_answer = server.answer_wire(&wire_query)?;
+        self.verify_answer_epoch(&wire_answer, pinned)?;
+
+        self.engine.recover_row(&wire_answer.answer)
+    }
+
+    /// Blind retrieval with epoch verification and Merkle proof.
+    ///
+    /// Combines epoch binding with proof verification for full integrity.
+    pub fn get_blind_proven_epoch(
+        &self,
+        server: &BlindServer,
+        index: usize,
+        pinned: &PinnedEpoch,
+    ) -> Result<ProvenRow> {
+        let query_limbs = self.engine.query_exact(index)?;
+        let wire_query = crate::wire::WireQuery::new(*server.catalog().params(), query_limbs)
+            .with_epoch(&pinned.directory_seal, &pinned.merkle_root);
+
+        let (wire_answer, proof) = server.answer_wire_proven(&wire_query, index)?;
+        self.verify_answer_epoch(&wire_answer, pinned)?;
+
+        let row = self.engine.recover_row(&wire_answer.answer)?;
+        let root = server.merkle_root();
+        proof.verify(&root)?;
+
+        let leaf = Catalog::leaf_hash(&row);
+        if leaf != proof.leaf_hash {
+            return Err(BlindDexError::ProofVerificationFailed {
+                expected: hex::encode(proof.leaf_hash),
+                got: hex::encode(leaf),
+            });
+        }
+        if proof.index != index {
+            return Err(BlindDexError::ProofVerificationFailed {
+                expected: format!("index {index}"),
+                got: format!("index {}", proof.index),
+            });
+        }
+
+        Ok(ProvenRow { index, row, proof })
+    }
+
+    /// Resolve a key via directory and retrieve with epoch verification.
+    pub fn get_blind_by_key_epoch(
+        &self,
+        directory: &Directory,
+        server: &BlindServer,
+        key: &str,
+        pinned: &PinnedEpoch,
+    ) -> Result<Vec<u8>> {
+        let index = directory
+            .resolve_key(key)
+            .ok_or_else(|| BlindDexError::KeyNotFound {
+                key: key.to_string(),
+            })?;
+        self.get_blind_epoch(server, index, pinned)
+    }
+
+    /// Resolve a key via directory and retrieve with epoch + proof verification.
+    pub fn get_blind_proven_by_key_epoch(
+        &self,
+        directory: &Directory,
+        server: &BlindServer,
+        key: &str,
+        pinned: &PinnedEpoch,
+    ) -> Result<ProvenRow> {
+        let index = directory
+            .resolve_key(key)
+            .ok_or_else(|| BlindDexError::KeyNotFound {
+                key: key.to_string(),
+            })?;
+        self.get_blind_proven_epoch(server, index, pinned)
     }
 }
