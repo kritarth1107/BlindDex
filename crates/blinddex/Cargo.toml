@@ -20,6 +20,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tiny_http = { workspace = true }
 
 [[example]]
 name = "wire_roundtrip"
@@ -36,3 +37,11 @@ path = "../../examples/bench_matvec.rs"
 [[example]]
 name = "directory_roundtrip"
 path = "../../examples/directory_roundtrip.rs"
+
+[[example]]
+name = "http_demo"
+path = "../../examples/http_demo.rs"
+
+[[example]]
+name = "sync_roundtrip"
+path = "../../examples/sync_roundtrip.rs"
