@@ -19,7 +19,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build a toy catalog
     let params = Params::preset_tiny();
     let mut cat = Catalog::new(params)?;
-    cat.insert(Some("wire_transfer".into()), b"skill bytes for wire transfer")?;
+    cat.insert(
+        Some("wire_transfer".into()),
+        b"skill bytes for wire transfer",
+    )?;
     cat.insert(Some("calendar".into()), b"calendar sync payload")?;
     cat.insert(Some("email".into()), b"email handler code")?;
 
@@ -38,7 +41,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  merkle_root: {}", offer.merkle_root);
     println!("  directory_seal: {}", offer.directory_seal);
     println!("  row_count: {}", offer.row_count);
-    println!("  params_fingerprint: {}...", &offer.params_fingerprint[..16]);
+    println!(
+        "  params_fingerprint: {}...",
+        &offer.params_fingerprint[..16]
+    );
     println!();
 
     // Wire roundtrip (simulates network transfer)

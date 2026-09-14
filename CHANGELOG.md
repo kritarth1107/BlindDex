@@ -5,6 +5,46 @@ All notable changes to BlindDex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-09-14
+
+### Added
+
+- **Sync handshake** (`sync` module): `SyncOffer` and `SyncAck` types for catalog
+  epoch binding. Server announces its catalog state (merkle root, directory seal,
+  params fingerprint, row count); client verifies against a `PinnedEpoch` before
+  proceeding with queries.
+- **Epoch-bound wire types**: `WireSyncOffer` and `WireSyncAck` for JSON interchange.
+  `WireQuery` and `WireAnswer` now support optional `directory_seal` and `merkle_root`
+  fields for epoch binding. `verify_epoch()` helpers on both types.
+- **Epoch-bound retrieval** (`client` module):
+  - `get_blind_epoch()` / `get_blind_proven_epoch()` — index-based with epoch check
+  - `get_blind_by_key_epoch()` / `get_blind_proven_by_key_epoch()` — keyed with epoch
+  - `verify_answer_epoch()` — check answer against pinned epoch
+- **Server epoch support** (`server` module):
+  - `directory_seal()` / `directory_seal_hex()` — access cached directory seal
+  - `verify_query_epoch()` — reject queries with mismatched epoch fields
+  - `answer_wire()` / `answer_wire_proven()` — answer with epoch verification
+  - `sync_offer()` — build `SyncOffer` from current state
+  - `export_directory()` — re-export directory convenience
+- **HTTP demo** (`examples/http_demo.rs`): Minimal HTTP server using `tiny_http` (no
+  async, lib stays HTTP-free). Endpoints: `GET /directory`, `GET /sync`, `POST /query`,
+  `POST /query-proven`. Shows wire protocol in action.
+- **Sync roundtrip example** (`examples/sync_roundtrip.rs`): Demonstrates full sync
+  handshake → epoch verification → epoch-bound query workflow.
+- **CLI commands**: `sync-check` (verify catalog against seal/root/offer), `sync-offer`
+  (emit WireSyncOffer JSON).
+- **Error variant**: `BlindDexError::EpochMismatch` for clear epoch verification failures.
+- **Tests**: `epoch_binding.rs` integration tests covering happy paths, mismatch
+  rejection on query and answer sides, and sync offer verification.
+
+### Changed
+
+- Workspace version bumped to **0.5.0**.
+- `BlindServer::from_catalog()` now caches directory seal for epoch binding.
+- README updated with sync/epoch module descriptions and quickstart examples.
+- THREAT_MODEL updated with sync/epoch binding section.
+- SECURITY updated with 0.5.x supported versions row.
+
 ## [0.4.0] — 2026-09-13
 
 ### Added

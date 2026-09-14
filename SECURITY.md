@@ -4,7 +4,10 @@
 
 | Version | Supported |
 | --- | --- |
-| 0.2.x | Toy / research — use only with pinned roots and cleartext-query awareness |
+| 0.5.x | Toy / research — sync handshake + epoch binding; use with pinned seal/root and cleartext-query awareness |
+| 0.4.x | Toy / research — public directories; use with pinned seal and cleartext-query awareness |
+| 0.3.x | Toy / research — offline hints; use with pinned roots and cleartext-query awareness |
+| 0.2.x | Toy / research — Merkle proofs; use with pinned roots and cleartext-query awareness |
 | 0.1.x | Toy / research |
 
 BlindDex is **not** a production PIR deployment. Do not rely on the toy query

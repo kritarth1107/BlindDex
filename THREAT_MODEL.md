@@ -140,10 +140,50 @@ trust (e.g., HTTPS to a known host, signed metadata).
 - **Key→index resolution is local.** The client must have the full directory
   to resolve keys; there is no private directory lookup.
 
+## Sync handshake and epoch binding (v0.5)
+
+A **sync handshake** lets a client verify the server's catalog state before
+issuing queries. The server sends a `SyncOffer` containing:
+
+- `merkle_root`: SHA-256 root over all catalog slots
+- `directory_seal`: blake3 fingerprint of the directory
+- `params_fingerprint`: blake3 hash of catalog parameters
+- `row_count`: number of occupied rows
+
+The client verifies the offer against a `PinnedEpoch` (from a previously trusted
+directory or explicit seal/root values). If verification fails, the client
+rejects the session.
+
+### What epoch binding provides
+
+- **Freshness check**: detect if the catalog changed since a known epoch
+- **Fail-closed on mismatch**: queries don't proceed if epochs differ
+- **Answer verification**: client can reject answers from wrong epochs
+
+### What epoch binding does NOT provide
+
+- **Server authentication**: the handshake binds state, not origin. A MITM
+  could still serve a valid-looking offer for a different catalog. Use TLS
+  or signed offers for origin authentication.
+- **Rollback protection**: an attacker with multiple valid epochs could serve
+  an older one. Epoch pinning only detects changes, not rollbacks.
+- **Query privacy**: epoch fields on `WireQuery` are visible to observers.
+  They reveal which epoch the client expects but not which index is queried.
+
+### Epoch fields on queries and answers
+
+`WireQuery` and `WireAnswer` support optional `directory_seal` and `merkle_root`
+fields:
+
+- **Query**: client attaches expected epoch; server rejects mismatches
+- **Answer**: server attaches current epoch; client rejects mismatches
+
+This bidirectional binding ensures both sides agree on catalog state.
+
 ## Intended evolution
 
 1. Replace exact queries with LWE / SimplePIR-style noisy queries.
 2. Wire the offline hint into actual precomputation for online savings.
 3. Optional packed multi-query API with documented leakage.
-4. Thin HTTP host wrapping the same wire types (`examples/wire_roundtrip.rs`
-   is the embedding sketch until then).
+4. Thin HTTP host wrapping the same wire types (`examples/http_demo.rs`
+   is the embedding sketch for v0.5).
