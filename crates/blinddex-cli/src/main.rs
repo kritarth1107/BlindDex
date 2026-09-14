@@ -517,7 +517,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 println!("catalog_merkle_root={}", cat.merkle_root_hex());
                 println!("catalog_seal={}", dir.seal_hex());
                 println!("catalog_row_count={}", cat.len());
-                println!("catalog_params_fingerprint={}", actual_offer.params_fingerprint);
+                println!(
+                    "catalog_params_fingerprint={}",
+                    actual_offer.params_fingerprint
+                );
                 println!("note=use --seal and --root to verify, or --offer to compare with remote");
                 return Ok(());
             };

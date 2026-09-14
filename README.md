@@ -30,14 +30,15 @@ See [`THREAT_MODEL.md`](THREAT_MODEL.md) and [`SECURITY.md`](SECURITY.md).
 | `params` | Toy `Params { n_rows, row_bytes, modulus }` (`q = 2³²` by default); preset factories |
 | `catalog` | Fixed-width rows, blake3 content-addressing, SHA-256 Merkle root, `prove` / `open_leaf_hash` |
 | `directory` | Public directory for name→index resolution (keys + hashes, no payloads); seal/fingerprint |
+| `sync` | Catalog sync handshake (`SyncOffer` / `SyncAck`) for epoch binding between client and server |
 | `merkle` | `MerkleProof` + path verify against root |
 | `pir` | Encode DB as `Z_q` matrix; query vector; server matvec; client recover; `query_noisy` (toy) |
 | `hint` | Offline hint scaffolding: seeded PRNG expansion for future SimplePIR offline phase |
 | `snapshot` | `SnapshotMeta` for catalog sealing (params + merkle root + row count) |
-| `client` | `get_blind` / `get_blind_proven` / `get_blind_by_key` / `get_blind_by_hash` + proven variants |
-| `server` | Hold catalog + matrix + root; answer matvecs; `prove` / `answer_proven` |
-| `wire` | JSON codec for `WireQuery` / `WireAnswer` / `WireProvenRow` / `WireDirectory` |
-| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `directory` · `get-blind-key` · `get-blind-proven-key` · `get-blind-hash` · `prove` · `root` · `hint-gen` · `snapshot` · `presets` |
+| `client` | `get_blind` / `get_blind_proven` / `get_blind_by_key` / `get_blind_by_hash` + proven and epoch-bound variants |
+| `server` | Hold catalog + matrix + root + seal; answer matvecs; `answer_wire` / `answer_wire_proven` with epoch binding |
+| `wire` | JSON codec for `WireQuery` / `WireAnswer` / `WireProvenRow` / `WireDirectory` / `WireSyncOffer` / `WireSyncAck` |
+| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `directory` · `get-blind-key` · `get-blind-proven-key` · `get-blind-hash` · `prove` · `root` · `hint-gen` · `snapshot` · `sync-check` · `sync-offer` · `presets` |
 
 ## Quick start
 
@@ -84,8 +85,23 @@ cargo test --workspace
 # List available presets
 ./target/release/blinddex presets
 
+# Sync check: print catalog epoch info
+./target/release/blinddex sync-check /tmp/cat.json
+
+# Sync check: verify against expected seal/root
+./target/release/blinddex sync-check /tmp/cat.json --seal <hex> --root <hex>
+
+# Emit sync offer JSON
+./target/release/blinddex sync-offer /tmp/cat.json
+
 # Wire codec demo (no HTTP deps)
 cargo run -p blinddex --example wire_roundtrip
+
+# Sync handshake + epoch-bound query demo
+cargo run -p blinddex --example sync_roundtrip
+
+# Minimal HTTP server demo (tiny_http)
+cargo run -p blinddex --example http_demo
 
 # Hint roundtrip demo
 cargo run -p blinddex --example hint_roundtrip
@@ -117,19 +133,33 @@ cargo run -p blinddex-cli -- batch-get-blind fixtures/catalog_toy.json 0,1,2
 
 **Production SimplePIR** encrypts `q` under LWE, adds noise, and packs multiple DB rows into ciphertext coefficients. This slice deliberately keeps the algebra visible and the round-trip exact so the API, proofs, and wire codec are easy to test.
 
-## Embedding / host sketch
+## HTTP demo
 
-There is **no** heavyweight HTTP binary in this release. Use:
+A minimal HTTP server example (`examples/http_demo.rs`) is included using `tiny_http`:
 
+```bash
+# Run the demo server (port 8080 or PORT env var)
+cargo run -p blinddex --example http_demo
+
+# In another terminal:
+curl http://localhost:8080/directory    # WireDirectory JSON
+curl http://localhost:8080/sync         # WireSyncOffer JSON
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"version":1,"params":{"n_rows":16,...},"query":[1,0,...]}' \
+     http://localhost:8080/query        # WireAnswer JSON
+```
+
+The library crate remains HTTP-free. For production use:
 - `examples/wire_roundtrip.rs` — serialize Query/Answer/ProvenRow as JSON
-- the `wire` module types as the future HTTP request/response bodies
-
-A thin `blinddex-host` (axum/warp) can wrap the same codec later without changing message shapes.
+- the `wire` module types as HTTP request/response bodies
+- a thin axum/warp wrapper can replace the demo without changing message shapes
 
 ## Library sketch
 
 ```rust
-use blinddex::{BlindClient, BlindServer, Catalog, Directory, Hint, Params, SnapshotMeta};
+use blinddex::{
+    BlindClient, BlindServer, Catalog, Hint, Params, PinnedEpoch, SnapshotMeta, SyncOffer,
+};
 
 // Use a preset or custom params
 let params = Params::preset_small(); // or Params::new(16, 64, 1u64 << 32)?
@@ -156,8 +186,14 @@ assert!(dir.verify_seal_hex(&seal));
 let proven = client.get_blind_proven_by_key_dir(&dir, &server, "wire_transfer")?;
 assert_eq!(&proven.row[..11], b"skill bytes");
 
-// Local demo: keyed retrieval via server.catalog()
-let row = client.get_blind_by_key(&server, "wire_transfer")?;
+// Sync handshake: server offers, client verifies, then queries with epoch binding
+let offer = server.sync_offer();
+let pinned = PinnedEpoch::from_directory(&dir);
+offer.verify(&pinned)?; // fails closed if epoch changed
+
+// Epoch-bound retrieval (query + answer both carry epoch fields)
+let proven = client.get_blind_proven_by_key_epoch(&dir, &server, "wire_transfer", &pinned)?;
+assert_eq!(&proven.row[..11], b"skill bytes");
 
 // Offline hint scaffolding (not privacy, just API shape)
 let seed = [42u8; 32];
@@ -178,6 +214,8 @@ examples/
   wire_roundtrip.rs       # JSON codec demo
   hint_roundtrip.rs       # offline hint API demo
   directory_roundtrip.rs  # directory + keyed retrieval demo
+  sync_roundtrip.rs       # sync handshake + epoch-bound query demo
+  http_demo.rs            # minimal HTTP server demo (tiny_http)
   bench_matvec.rs         # timing benchmark
 fixtures/catalog_toy.json
 THREAT_MODEL.md

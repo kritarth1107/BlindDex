@@ -565,8 +565,7 @@ mod tests {
         let wq = WireQuery::new(params, query.clone());
         assert!(!wq.has_epoch());
 
-        let wq_epoch = WireQuery::new(params, query)
-            .with_epoch("seal123", "root456");
+        let wq_epoch = WireQuery::new(params, query).with_epoch("seal123", "root456");
         assert!(wq_epoch.has_epoch());
         assert_eq!(wq_epoch.directory_seal, Some("seal123".to_string()));
         assert_eq!(wq_epoch.merkle_root, Some("root456".to_string()));
