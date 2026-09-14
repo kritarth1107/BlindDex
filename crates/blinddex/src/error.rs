@@ -98,6 +98,17 @@ pub enum BlindDexError {
         max: usize,
     },
 
+    /// Epoch mismatch during sync verification.
+    #[error("epoch mismatch on {field}: expected {expected}, got {got}")]
+    EpochMismatch {
+        /// Which field mismatched.
+        field: String,
+        /// Expected value.
+        expected: String,
+        /// Actual value.
+        got: String,
+    },
+
     /// JSON (de)serialization failure.
     #[error("serde error: {0}")]
     Serde(String),
