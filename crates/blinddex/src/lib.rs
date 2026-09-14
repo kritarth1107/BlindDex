@@ -49,5 +49,5 @@ pub use snapshot::{SnapshotMeta, SNAPSHOT_VERSION};
 pub use sync::{PinnedEpoch, SyncAck, SyncOffer, SYNC_VERSION};
 pub use wire::{
     proof_from_json, proof_to_json, WireAnswer, WireBatchProven, WireDirectory, WireDirectoryEntry,
-    WireProvenRow, WireQuery, WIRE_VERSION,
+    WireProvenRow, WireQuery, WireSyncAck, WireSyncOffer, WIRE_VERSION,
 };
