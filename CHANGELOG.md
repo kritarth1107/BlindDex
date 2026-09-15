@@ -5,6 +5,46 @@ All notable changes to BlindDex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-09-15
+
+### Added
+
+- **Query receipts / nonce echo** (`receipt` module): Client-generated 16–32 byte
+  nonces for answer verification. Client attaches `client_nonce` to `WireQuery`;
+  server echoes it in `WireAnswer`. Helpers: `generate_nonce_hex_default()`,
+  `verify_nonce_echo()`, `WireQuery::with_nonce()`, `WireAnswer::verify_nonce()`.
+- **Replay window** (`receipt` module): Server-side bounded LRU (`ReplayWindow`)
+  tracks recent nonces and rejects duplicates. Enable with
+  `BlindServer::with_replay_protection(capacity)`. Demo anti-replay only (not
+  distributed, not authenticated).
+- **Constant-size answer padding** (`wire` module): `WireAnswer::with_padding(total_bytes)`
+  pads answers to a fixed wire size, hiding payload length variation.
+  `WireAnswer::strip_padding()` verifies and removes padding.
+- **New error variants**: `BlindDexError::ReceiptMismatch` for nonce verification
+  failures, `BlindDexError::ReplayDetected` for duplicate nonce rejection,
+  `BlindDexError::PaddingError` for padding issues.
+- **HTTP demo updates** (`examples/http_demo.rs`): Environment variables
+  `REPLAY_PROTECT=1` to enable replay protection, `PADDING=<bytes>` for answer
+  padding. Nonces in `WireQuery` are automatically echoed.
+- **CLI updates**: `--nonce` and `--nonce-hex` flags on `get-blind` and
+  `get-blind-proven` for receipt verification. New `receipt-check` command demos
+  nonce roundtrip and optional replay detection.
+- **Tests**: `tests/receipt_padding.rs` integration tests covering nonce echo
+  success/fail, replay detection, padding constancy, and combined features.
+
+### Changed
+
+- Workspace version bumped to **0.6.0**.
+- `WireQuery` and `WireAnswer` now have optional `client_nonce` fields (additive,
+  backward-compatible with `#[serde(default)]`).
+- `WireAnswer` has optional `padded_answer` and `pad_len` fields for padding.
+- `BlindServer` can now be configured with replay protection and/or answer padding
+  via builder methods.
+- README updated with receipt module, padding docs, and CLI examples.
+- THREAT_MODEL updated with query receipts and answer padding sections (honest
+  non-claims about what these features do NOT provide).
+- SECURITY updated with 0.6.x supported versions row.
+
 ## [0.5.0] — 2026-09-14
 
 ### Added

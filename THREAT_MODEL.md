@@ -180,10 +180,72 @@ fields:
 
 This bidirectional binding ensures both sides agree on catalog state.
 
+## Query receipts (v0.6)
+
+The `receipt` module provides scaffolding for demo anti-replay:
+
+- **Client nonces**: A 16–32 byte random value attached to `WireQuery` and echoed
+  in `WireAnswer`. The client verifies the echo to detect answer substitution.
+- **Replay window**: The server tracks recently seen nonces (bounded LRU) and
+  rejects duplicates.
+
+### What receipts provide
+
+- **Answer substitution detection**: A client can verify that an answer
+  corresponds to its query (assuming the server cooperates with echo).
+- **Demo replay prevention**: The replay window prevents trivial replays in a
+  single-server demo setting.
+
+### What receipts do NOT provide
+
+- **Authentication**: Nonces are not cryptographically signed. A MITM could
+  strip, forge, or modify nonces. Use TLS and signed requests for real auth.
+- **Distributed replay protection**: The window is per-server-instance. Multiple
+  servers do not share nonce state. A nonce accepted by server A may be replayed
+  to server B.
+- **Persistent state**: The window is in-memory. Nonces are lost on restart.
+- **Query privacy**: The nonce is visible on the wire. It does not hide the
+  query content or index.
+- **Binding to query content**: The nonce is echoed regardless of query. A
+  malicious server could echo the nonce with an answer for a different index.
+
+### Recommended usage
+
+- Enable replay protection (`REPLAY_PROTECT=1` or `with_replay_protection()`)
+  only for demo/testing scenarios where you want to show replay rejection.
+- For production, combine with TLS client certificates, signed requests, or a
+  proper challenge-response protocol.
+
+## Answer padding (v0.6)
+
+The `WireAnswer::with_padding(total_bytes)` helper pads answers to a fixed wire
+size, storing the result in `padded_answer` (hex) with `pad_len` for verification.
+
+### What padding provides
+
+- **Payload length hiding**: All padded answers for a given `total_bytes` have
+  the same size, hiding variation in recovered row lengths.
+
+### What padding does NOT provide
+
+- **JSON structure hiding**: The JSON envelope still reveals field presence,
+  nesting, and key names. Padding only affects the `padded_answer` field length.
+- **Query privacy**: Padding does not hide query patterns, timing, or frequency.
+- **Traffic analysis resistance**: Observers can still count queries, measure
+  timing, and correlate requests/responses.
+- **Index hiding**: The toy PIR path still uses exact one-hot queries. Padding
+  the answer does not help if the query already leaks the index.
+
+### Recommended usage
+
+- Use padding when demonstrating size-channel mitigation in a controlled setting.
+- For production, combine with real PIR (LWE queries), traffic shaping, and
+  cover traffic.
+
 ## Intended evolution
 
 1. Replace exact queries with LWE / SimplePIR-style noisy queries.
 2. Wire the offline hint into actual precomputation for online savings.
 3. Optional packed multi-query API with documented leakage.
 4. Thin HTTP host wrapping the same wire types (`examples/http_demo.rs`
-   is the embedding sketch for v0.5).
+   is the embedding sketch for v0.6).
