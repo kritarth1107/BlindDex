@@ -353,9 +353,9 @@ impl WireAnswer {
             BlindDexError::PaddingError("no padded_answer field present".to_string())
         })?;
 
-        let pad_len = self.pad_len.ok_or_else(|| {
-            BlindDexError::PaddingError("no pad_len field present".to_string())
-        })?;
+        let pad_len = self
+            .pad_len
+            .ok_or_else(|| BlindDexError::PaddingError("no pad_len field present".to_string()))?;
 
         let padded =
             hex::decode(padded_hex).map_err(|e| BlindDexError::PaddingError(e.to_string()))?;

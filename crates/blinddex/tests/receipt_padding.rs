@@ -8,8 +8,10 @@ use blinddex::{
 fn setup_server_client() -> (BlindServer, BlindClient, Catalog) {
     let params = Params::preset_tiny();
     let mut cat = Catalog::new(params).unwrap();
-    cat.insert(Some("skill_a".into()), b"payload for skill a").unwrap();
-    cat.insert(Some("skill_b".into()), b"payload for skill b").unwrap();
+    cat.insert(Some("skill_a".into()), b"payload for skill a")
+        .unwrap();
+    cat.insert(Some("skill_b".into()), b"payload for skill b")
+        .unwrap();
     cat.insert(None, b"anonymous payload").unwrap();
 
     let server = BlindServer::from_catalog(&cat).unwrap();
@@ -230,9 +232,7 @@ fn wire_nonce_roundtrip_json() {
 
 #[test]
 fn wire_padding_roundtrip_json() {
-    let answer = WireAnswer::new(vec![42u64; 8])
-        .with_padding(128)
-        .unwrap();
+    let answer = WireAnswer::new(vec![42u64; 8]).with_padding(128).unwrap();
 
     let json = answer.to_json().unwrap();
     let parsed = WireAnswer::from_json(&json).unwrap();
