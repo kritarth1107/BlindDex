@@ -29,6 +29,7 @@ pub mod hint;
 pub mod merkle;
 pub mod params;
 pub mod pir;
+pub mod receipt;
 pub mod server;
 pub mod snapshot;
 pub mod sync;
@@ -44,6 +45,11 @@ pub use params::{
     Params, DEFAULT_MODULUS, DEFAULT_N_ROWS, DEFAULT_ROW_BYTES, MAX_N_ROWS, MAX_ROW_BYTES,
 };
 pub use pir::{DatabaseMatrix, PirEngine};
+pub use receipt::{
+    generate_nonce, generate_nonce_default, generate_nonce_hex, generate_nonce_hex_default,
+    verify_nonce_echo, ReplayWindow, DEFAULT_NONCE_LEN, DEFAULT_REPLAY_WINDOW_SIZE, MAX_NONCE_LEN,
+    MIN_NONCE_LEN,
+};
 pub use server::{put_entry, BlindServer};
 pub use snapshot::{SnapshotMeta, SNAPSHOT_VERSION};
 pub use sync::{PinnedEpoch, SyncAck, SyncOffer, SYNC_VERSION};
