@@ -116,6 +116,26 @@ pub enum BlindDexError {
     /// I/O failure when loading or saving a catalog file.
     #[error("io error: {0}")]
     Io(String),
+
+    /// Receipt nonce mismatch: server echoed a different nonce than expected.
+    #[error("receipt mismatch: expected nonce {expected}, got {got}")]
+    ReceiptMismatch {
+        /// Expected nonce (hex).
+        expected: String,
+        /// Actual nonce received (hex or "(missing)").
+        got: String,
+    },
+
+    /// Replay detected: this nonce was already used in a recent query.
+    #[error("replay detected: nonce {nonce} was already used")]
+    ReplayDetected {
+        /// The duplicate nonce (hex).
+        nonce: String,
+    },
+
+    /// Padding error: answer padding is invalid or corrupted.
+    #[error("padding error: {0}")]
+    PaddingError(String),
 }
 
 impl From<serde_json::Error> for BlindDexError {

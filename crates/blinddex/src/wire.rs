@@ -23,6 +23,14 @@
 //! `merkle_root`) so a server can verify that a query targets the current
 //! catalog epoch, and a client can verify that an answer comes from the
 //! expected epoch. See [`WireQuery`] and [`WireAnswer`] epoch fields.
+//!
+//! # Query receipts (v0.6)
+//!
+//! Queries and answers can carry an optional `client_nonce` field for receipt
+//! verification. The client generates a random nonce and attaches it to the
+//! query; the server echoes it in the answer. This helps detect answer
+//! substitution attacks (though does NOT provide authentication — see
+//! `THREAT_MODEL.md`).
 
 use crate::directory::{Directory, DirectoryEntry, DirectoryParams};
 use crate::error::{BlindDexError, Result};
@@ -46,6 +54,14 @@ pub const WIRE_VERSION: u32 = 1;
 ///
 /// A server that enforces epoch binding will reject queries where these fields
 /// don't match its current state.
+///
+/// # Query receipts (v0.6)
+///
+/// The optional `client_nonce` field provides receipt functionality:
+/// - Client generates a random 16–32 byte nonce and attaches it to the query.
+/// - Server echoes the nonce in the answer.
+/// - Client verifies the echo to detect answer substitution.
+/// - Server can optionally track recent nonces to reject replays.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WireQuery {
     /// Codec version.
@@ -60,6 +76,9 @@ pub struct WireQuery {
     /// Optional merkle root for epoch binding (hex, 64 chars).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merkle_root: Option<String>,
+    /// Optional client nonce for receipt verification (hex, 32–64 chars).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<String>,
 }
 
 /// JSON-friendly PIR answer (matvec limbs).
@@ -73,6 +92,20 @@ pub struct WireQuery {
 ///
 /// A client that enforces epoch binding will reject answers where these fields
 /// don't match its pinned expectation.
+///
+/// # Query receipts (v0.6)
+///
+/// The optional `client_nonce` field echoes the nonce from the query for
+/// receipt verification. See [`WireQuery::client_nonce`].
+///
+/// # Answer padding (v0.6)
+///
+/// When `padded_answer` is present, the answer is padded to a fixed size:
+/// - `padded_answer`: hex-encoded payload with trailing zero padding
+/// - `pad_len`: number of padding bytes (for verification)
+///
+/// This hides payload length variation but does NOT hide JSON structure or
+/// query patterns. See `THREAT_MODEL.md`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WireAnswer {
     /// Codec version.
@@ -85,6 +118,15 @@ pub struct WireAnswer {
     /// Optional merkle root for epoch binding (hex, 64 chars).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merkle_root: Option<String>,
+    /// Optional client nonce echoed for receipt verification (hex, 32–64 chars).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<String>,
+    /// Optional hex-encoded padded answer payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padded_answer: Option<String>,
+    /// Number of padding bytes in `padded_answer` (for verification).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad_len: Option<usize>,
 }
 
 /// Proven retrieval result on the wire: recovered row + inclusion proof.
@@ -120,6 +162,7 @@ impl WireQuery {
             query,
             directory_seal: None,
             merkle_root: None,
+            client_nonce: None,
         }
     }
 
@@ -132,9 +175,32 @@ impl WireQuery {
         self
     }
 
+    /// Attach a client nonce for receipt verification.
+    ///
+    /// The server should echo this nonce in the answer so the client can
+    /// verify the answer corresponds to this query.
+    pub fn with_nonce(mut self, nonce: &str) -> Self {
+        self.client_nonce = Some(nonce.to_string());
+        self
+    }
+
+    /// Generate and attach a random client nonce (16 bytes, hex).
+    ///
+    /// Returns the generated nonce hex string for later verification.
+    pub fn with_random_nonce(mut self) -> (Self, String) {
+        let nonce = crate::receipt::generate_nonce_hex_default();
+        self.client_nonce = Some(nonce.clone());
+        (self, nonce)
+    }
+
     /// Check if this query has epoch binding fields.
     pub fn has_epoch(&self) -> bool {
         self.directory_seal.is_some() && self.merkle_root.is_some()
+    }
+
+    /// Check if this query has a client nonce.
+    pub fn has_nonce(&self) -> bool {
+        self.client_nonce.is_some()
     }
 
     /// Verify that this query's epoch fields match expected values.
@@ -182,6 +248,9 @@ impl WireAnswer {
             answer,
             directory_seal: None,
             merkle_root: None,
+            client_nonce: None,
+            padded_answer: None,
+            pad_len: None,
         }
     }
 
@@ -194,9 +263,120 @@ impl WireAnswer {
         self
     }
 
+    /// Echo a client nonce for receipt verification.
+    ///
+    /// Call this with the nonce from the incoming query.
+    pub fn with_nonce(mut self, nonce: &str) -> Self {
+        self.client_nonce = Some(nonce.to_string());
+        self
+    }
+
+    /// Echo the client nonce from a query if present.
+    pub fn echo_nonce_from(mut self, query: &WireQuery) -> Self {
+        if let Some(ref nonce) = query.client_nonce {
+            self.client_nonce = Some(nonce.clone());
+        }
+        self
+    }
+
+    /// Verify the echoed nonce matches an expected value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::ReceiptMismatch`] if nonces don't match.
+    pub fn verify_nonce(&self, expected: &str) -> crate::error::Result<()> {
+        crate::receipt::verify_nonce_echo(expected, self.client_nonce.as_deref())
+    }
+
     /// Check if this answer has epoch binding fields.
     pub fn has_epoch(&self) -> bool {
         self.directory_seal.is_some() && self.merkle_root.is_some()
+    }
+
+    /// Check if this answer has an echoed client nonce.
+    pub fn has_nonce(&self) -> bool {
+        self.client_nonce.is_some()
+    }
+
+    /// Check if this answer has padding.
+    pub fn has_padding(&self) -> bool {
+        self.padded_answer.is_some()
+    }
+
+    /// Pad the answer to a fixed total size (in bytes of the padded_answer hex payload).
+    ///
+    /// The padding is done by encoding the answer limbs as bytes and appending
+    /// zero bytes to reach `total_bytes`. The result is stored as hex in
+    /// `padded_answer` and the original `answer` field is preserved.
+    ///
+    /// # Arguments
+    ///
+    /// * `total_bytes` - Target size in bytes (before hex encoding).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::PaddingError`] if the answer is already larger
+    /// than `total_bytes`.
+    pub fn with_padding(mut self, total_bytes: usize) -> crate::error::Result<Self> {
+        let answer_bytes: Vec<u8> = self
+            .answer
+            .iter()
+            .flat_map(|&limb| limb.to_le_bytes())
+            .collect();
+
+        if answer_bytes.len() > total_bytes {
+            return Err(BlindDexError::PaddingError(format!(
+                "answer size {} exceeds target {}",
+                answer_bytes.len(),
+                total_bytes
+            )));
+        }
+
+        let pad_len = total_bytes - answer_bytes.len();
+        let mut padded = answer_bytes;
+        padded.resize(total_bytes, 0);
+
+        self.padded_answer = Some(hex::encode(&padded));
+        self.pad_len = Some(pad_len);
+        Ok(self)
+    }
+
+    /// Strip padding and verify the pad length matches.
+    ///
+    /// Returns the unpadded answer bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlindDexError::PaddingError`] if padding is invalid.
+    pub fn strip_padding(&self) -> crate::error::Result<Vec<u8>> {
+        let padded_hex = self.padded_answer.as_ref().ok_or_else(|| {
+            BlindDexError::PaddingError("no padded_answer field present".to_string())
+        })?;
+
+        let pad_len = self.pad_len.ok_or_else(|| {
+            BlindDexError::PaddingError("no pad_len field present".to_string())
+        })?;
+
+        let padded =
+            hex::decode(padded_hex).map_err(|e| BlindDexError::PaddingError(e.to_string()))?;
+
+        if pad_len > padded.len() {
+            return Err(BlindDexError::PaddingError(format!(
+                "pad_len {} exceeds payload len {}",
+                pad_len,
+                padded.len()
+            )));
+        }
+
+        let content_len = padded.len() - pad_len;
+        let padding_region = &padded[content_len..];
+        if !padding_region.iter().all(|&b| b == 0) {
+            return Err(BlindDexError::PaddingError(
+                "padding region contains non-zero bytes".to_string(),
+            ));
+        }
+
+        Ok(padded[..content_len].to_vec())
     }
 
     /// Verify that this answer's epoch fields match expected values.
@@ -667,5 +847,136 @@ mod tests {
 
         assert!(!ack2.accepted);
         assert_eq!(ack2.reason, Some("epoch mismatch".to_string()));
+    }
+
+    #[test]
+    fn wire_query_nonce_fields() {
+        let params = Params::preset_tiny();
+        let query = vec![1u64; params.n_rows];
+        let wq = WireQuery::new(params, query.clone());
+        assert!(!wq.has_nonce());
+
+        let wq_nonce = WireQuery::new(params, query).with_nonce("abc123def456");
+        assert!(wq_nonce.has_nonce());
+        assert_eq!(wq_nonce.client_nonce, Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn wire_query_nonce_roundtrip() {
+        let params = Params::preset_tiny();
+        let query = vec![1u64; params.n_rows];
+        let wq = WireQuery::new(params, query).with_nonce("deadbeef01234567");
+
+        let json = wq.to_json().unwrap();
+        let wq2 = WireQuery::from_json(&json).unwrap();
+        assert_eq!(wq, wq2);
+        assert!(wq2.has_nonce());
+    }
+
+    #[test]
+    fn wire_query_random_nonce() {
+        let params = Params::preset_tiny();
+        let query = vec![1u64; params.n_rows];
+        let (wq, nonce) = WireQuery::new(params, query).with_random_nonce();
+
+        assert!(wq.has_nonce());
+        assert_eq!(wq.client_nonce, Some(nonce.clone()));
+        assert_eq!(nonce.len(), 32);
+    }
+
+    #[test]
+    fn wire_answer_nonce_fields() {
+        let answer = vec![42u64; 8];
+        let wa = WireAnswer::new(answer.clone());
+        assert!(!wa.has_nonce());
+
+        let wa_nonce = WireAnswer::new(answer).with_nonce("my_nonce_hex");
+        assert!(wa_nonce.has_nonce());
+        assert_eq!(wa_nonce.client_nonce, Some("my_nonce_hex".to_string()));
+    }
+
+    #[test]
+    fn wire_answer_nonce_echo() {
+        let params = Params::preset_tiny();
+        let query = vec![1u64; params.n_rows];
+        let wq = WireQuery::new(params, query).with_nonce("test_nonce_123");
+
+        let answer = vec![42u64; 8];
+        let wa = WireAnswer::new(answer).echo_nonce_from(&wq);
+
+        assert!(wa.has_nonce());
+        assert_eq!(wa.client_nonce, Some("test_nonce_123".to_string()));
+    }
+
+    #[test]
+    fn wire_answer_verify_nonce() {
+        let answer = vec![42u64; 8];
+        let wa = WireAnswer::new(answer).with_nonce("expected_nonce");
+
+        assert!(wa.verify_nonce("expected_nonce").is_ok());
+        assert!(wa.verify_nonce("wrong_nonce").is_err());
+    }
+
+    #[test]
+    fn wire_answer_padding_fields() {
+        let answer = vec![42u64; 8];
+        let wa = WireAnswer::new(answer.clone());
+        assert!(!wa.has_padding());
+
+        let wa_padded = WireAnswer::new(answer).with_padding(256).unwrap();
+        assert!(wa_padded.has_padding());
+        assert!(wa_padded.padded_answer.is_some());
+        assert_eq!(wa_padded.pad_len.unwrap(), 256 - 64);
+    }
+
+    #[test]
+    fn wire_answer_padding_roundtrip() {
+        let answer = vec![42u64; 8];
+        let wa = WireAnswer::new(answer).with_padding(128).unwrap();
+
+        let json = wa.to_json().unwrap();
+        let wa2 = WireAnswer::from_json(&json).unwrap();
+
+        assert_eq!(wa.padded_answer, wa2.padded_answer);
+        assert_eq!(wa.pad_len, wa2.pad_len);
+        assert!(wa2.has_padding());
+    }
+
+    #[test]
+    fn wire_answer_strip_padding() {
+        let answer = vec![42u64; 8];
+        let wa = WireAnswer::new(answer.clone()).with_padding(128).unwrap();
+
+        let stripped = wa.strip_padding().unwrap();
+        let expected: Vec<u8> = answer.iter().flat_map(|&l| l.to_le_bytes()).collect();
+        assert_eq!(stripped, expected);
+    }
+
+    #[test]
+    fn wire_answer_padding_too_small() {
+        let answer = vec![42u64; 8];
+        let result = WireAnswer::new(answer).with_padding(4);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_combined_epoch_nonce_padding() {
+        let answer = vec![42u64; 8];
+        let wa = WireAnswer::new(answer)
+            .with_epoch("seal", "root")
+            .with_nonce("nonce123")
+            .with_padding(256)
+            .unwrap();
+
+        assert!(wa.has_epoch());
+        assert!(wa.has_nonce());
+        assert!(wa.has_padding());
+
+        let json = wa.to_json().unwrap();
+        let wa2 = WireAnswer::from_json(&json).unwrap();
+
+        assert_eq!(wa.directory_seal, wa2.directory_seal);
+        assert_eq!(wa.client_nonce, wa2.client_nonce);
+        assert_eq!(wa.padded_answer, wa2.padded_answer);
     }
 }
