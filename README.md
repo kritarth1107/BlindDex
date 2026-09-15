@@ -31,14 +31,15 @@ See [`THREAT_MODEL.md`](THREAT_MODEL.md) and [`SECURITY.md`](SECURITY.md).
 | `catalog` | Fixed-width rows, blake3 content-addressing, SHA-256 Merkle root, `prove` / `open_leaf_hash` |
 | `directory` | Public directory for name→index resolution (keys + hashes, no payloads); seal/fingerprint |
 | `sync` | Catalog sync handshake (`SyncOffer` / `SyncAck`) for epoch binding between client and server |
+| `receipt` | Query receipts: client nonces for answer verification + server replay window (demo anti-replay) |
 | `merkle` | `MerkleProof` + path verify against root |
 | `pir` | Encode DB as `Z_q` matrix; query vector; server matvec; client recover; `query_noisy` (toy) |
 | `hint` | Offline hint scaffolding: seeded PRNG expansion for future SimplePIR offline phase |
 | `snapshot` | `SnapshotMeta` for catalog sealing (params + merkle root + row count) |
 | `client` | `get_blind` / `get_blind_proven` / `get_blind_by_key` / `get_blind_by_hash` + proven and epoch-bound variants |
-| `server` | Hold catalog + matrix + root + seal; answer matvecs; `answer_wire` / `answer_wire_proven` with epoch binding |
-| `wire` | JSON codec for `WireQuery` / `WireAnswer` / `WireProvenRow` / `WireDirectory` / `WireSyncOffer` / `WireSyncAck` |
-| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `directory` · `get-blind-key` · `get-blind-proven-key` · `get-blind-hash` · `prove` · `root` · `hint-gen` · `snapshot` · `sync-check` · `sync-offer` · `presets` |
+| `server` | Hold catalog + matrix + root + seal; answer matvecs; replay protection; answer padding |
+| `wire` | JSON codec for `WireQuery` / `WireAnswer` (with nonce + padding fields) / `WireProvenRow` / `WireDirectory` / `WireSyncOffer` / `WireSyncAck` |
+| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `directory` · `get-blind-key` · `get-blind-proven-key` · `get-blind-hash` · `prove` · `root` · `hint-gen` · `snapshot` · `sync-check` · `sync-offer` · `presets` · `receipt-check` |
 
 ## Quick start
 
@@ -94,6 +95,15 @@ cargo test --workspace
 # Emit sync offer JSON
 ./target/release/blinddex sync-offer /tmp/cat.json
 
+# Query with nonce (receipt verification)
+./target/release/blinddex get-blind /tmp/cat.json 0 --nonce
+
+# Query with explicit nonce
+./target/release/blinddex get-blind-proven /tmp/cat.json 0 --nonce-hex deadbeef01234567
+
+# Receipt check demo (nonce echo + optional replay detection)
+./target/release/blinddex receipt-check /tmp/cat.json 0 --replay-protect --padding 256
+
 # Wire codec demo (no HTTP deps)
 cargo run -p blinddex --example wire_roundtrip
 
@@ -141,12 +151,21 @@ A minimal HTTP server example (`examples/http_demo.rs`) is included using `tiny_
 # Run the demo server (port 8080 or PORT env var)
 cargo run -p blinddex --example http_demo
 
+# With replay protection enabled
+REPLAY_PROTECT=1 cargo run -p blinddex --example http_demo
+
+# With answer padding (256 bytes)
+PADDING=256 cargo run -p blinddex --example http_demo
+
 # In another terminal:
 curl http://localhost:8080/directory    # WireDirectory JSON
 curl http://localhost:8080/sync         # WireSyncOffer JSON
+
+# Query with nonce for receipt verification
 curl -X POST -H "Content-Type: application/json" \
-     -d '{"version":1,"params":{"n_rows":16,...},"query":[1,0,...]}' \
-     http://localhost:8080/query        # WireAnswer JSON
+     -d '{"version":1,"params":{"n_rows":16,...},"query":[1,0,...],
+          "client_nonce":"deadbeef01234567deadbeef01234567"}' \
+     http://localhost:8080/query        # WireAnswer JSON (nonce echoed)
 ```
 
 The library crate remains HTTP-free. For production use:
