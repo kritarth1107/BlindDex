@@ -1,10 +1,11 @@
 //! BlindDex CLI: put / get-blind / get-blind-proven / batch-get-blind / prove / root /
 //! directory / get-blind-key / get-blind-proven-key / get-blind-hash / hint-gen / snapshot /
-//! sync-check / presets.
+//! sync-check / sync-offer / presets / receipt-check.
 
 use blinddex::{
-    proof_to_json, BlindClient, BlindServer, Catalog, Hint, Params, PinnedEpoch, SnapshotMeta,
-    SyncOffer, WireBatchProven, WireDirectory, WireProvenRow, WireSyncOffer,
+    generate_nonce_hex_default, proof_to_json, BlindClient, BlindServer, Catalog, Hint, Params,
+    PinnedEpoch, SnapshotMeta, SyncOffer, WireBatchProven, WireDirectory, WireProvenRow, WireQuery,
+    WireSyncOffer,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -44,6 +45,12 @@ enum Commands {
         catalog: PathBuf,
         /// Decimal index or hex blake3 content hash.
         index_or_hash: String,
+        /// Attach a random nonce and verify echo (receipt check).
+        #[arg(long)]
+        nonce: bool,
+        /// Specify a nonce to use (hex, 32–64 chars). Implies --nonce.
+        #[arg(long)]
+        nonce_hex: Option<String>,
     },
     /// Blind retrieve + verify Merkle inclusion proof against the catalog root.
     GetBlindProven {
@@ -54,6 +61,12 @@ enum Commands {
         /// Emit a WireProvenRow JSON blob instead of human text.
         #[arg(long)]
         json: bool,
+        /// Attach a random nonce and verify echo (receipt check).
+        #[arg(long)]
+        nonce: bool,
+        /// Specify a nonce to use (hex, 32–64 chars). Implies --nonce.
+        #[arg(long)]
+        nonce_hex: Option<String>,
     },
     /// Batch blind retrieve (one matvec per index) with proofs.
     BatchGetBlind {
@@ -164,6 +177,19 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Demo receipt check: generate nonce, query, verify echo.
+    ReceiptCheck {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Row index to query.
+        index: usize,
+        /// Enable replay protection on the server side.
+        #[arg(long)]
+        replay_protect: bool,
+        /// Enable answer padding (specify target bytes).
+        #[arg(long)]
+        padding: Option<usize>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -202,19 +228,43 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::GetBlind {
             catalog,
             index_or_hash,
+            nonce,
+            nonce_hex,
         } => {
             let cat = Catalog::load_json(&catalog)?;
             let server = BlindServer::from_catalog(&cat)?;
             let client = BlindClient::new(&cat)?;
-            let (index, row) = if let Ok(index) = index_or_hash.parse::<usize>() {
-                let got = client.get_blind(&server, index)?;
-                (index, got)
+
+            let use_nonce = nonce || nonce_hex.is_some();
+            let nonce_value = nonce_hex.unwrap_or_else(|| {
+                if use_nonce {
+                    generate_nonce_hex_default()
+                } else {
+                    String::new()
+                }
+            });
+
+            let index = if let Ok(idx) = index_or_hash.parse::<usize>() {
+                idx
             } else {
                 let hash = index_or_hash.to_lowercase();
-                let (index, _) = cat.get_by_hash(&hash)?;
-                let got = client.get_blind(&server, index)?;
-                (index, got)
+                let (idx, _) = cat.get_by_hash(&hash)?;
+                idx
             };
+
+            let row = if use_nonce {
+                let query_limbs = client.engine().query_exact(index)?;
+                let wire_query =
+                    WireQuery::new(*cat.params(), query_limbs).with_nonce(&nonce_value);
+                let wire_answer = server.answer_wire(&wire_query)?;
+                wire_answer.verify_nonce(&nonce_value)?;
+                println!("nonce={nonce_value}");
+                println!("nonce_echo=verified");
+                client.engine().recover_row(&wire_answer.answer)?
+            } else {
+                client.get_blind(&server, index)?
+            };
+
             let text = String::from_utf8_lossy(&row);
             let trimmed = text.trim_end_matches('\0');
             println!("index={index}");
@@ -226,11 +276,51 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             catalog,
             index,
             json,
+            nonce,
+            nonce_hex,
         } => {
             let cat = Catalog::load_json(&catalog)?;
             let server = BlindServer::from_catalog(&cat)?;
             let client = BlindClient::new(&cat)?;
-            let proven = client.get_blind_proven(&server, index)?;
+
+            let use_nonce = nonce || nonce_hex.is_some();
+            let nonce_value = nonce_hex.unwrap_or_else(|| {
+                if use_nonce {
+                    generate_nonce_hex_default()
+                } else {
+                    String::new()
+                }
+            });
+
+            let proven = if use_nonce {
+                let query_limbs = client.engine().query_exact(index)?;
+                let wire_query =
+                    WireQuery::new(*cat.params(), query_limbs).with_nonce(&nonce_value);
+                let (wire_answer, proof) = server.answer_wire_proven(&wire_query, index)?;
+                wire_answer.verify_nonce(&nonce_value)?;
+                let row = client.engine().recover_row(&wire_answer.answer)?;
+
+                proof.verify(&server.merkle_root())?;
+                let leaf = Catalog::leaf_hash(&row);
+                if leaf != proof.leaf_hash {
+                    return Err(format!(
+                        "leaf hash mismatch: expected {}, got {}",
+                        hex::encode(proof.leaf_hash),
+                        hex::encode(leaf)
+                    )
+                    .into());
+                }
+
+                if !json {
+                    println!("nonce={nonce_value}");
+                    println!("nonce_echo=verified");
+                }
+
+                blinddex::ProvenRow { index, row, proof }
+            } else {
+                client.get_blind_proven(&server, index)?
+            };
+
             if json {
                 let wire = WireProvenRow::new(
                     proven.index,
@@ -554,6 +644,77 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("merkle_root={}", offer.merkle_root);
             println!("directory_seal={}", offer.directory_seal);
             println!("row_count={}", offer.row_count);
+        }
+        Commands::ReceiptCheck {
+            catalog,
+            index,
+            replay_protect,
+            padding,
+        } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let mut server = BlindServer::from_catalog(&cat)?;
+            let client = BlindClient::new(&cat)?;
+
+            if replay_protect {
+                server = server.with_default_replay_protection();
+                println!("replay_protection=enabled");
+            }
+            if let Some(target) = padding {
+                server = server.with_answer_padding(target);
+                println!("padding_target={target}");
+            }
+
+            let nonce = generate_nonce_hex_default();
+            println!("client_nonce={nonce}");
+
+            let query_limbs = client.engine().query_exact(index)?;
+            let wire_query = WireQuery::new(*cat.params(), query_limbs.clone()).with_nonce(&nonce);
+            let wire_answer = server.answer_wire(&wire_query)?;
+
+            match wire_answer.verify_nonce(&nonce) {
+                Ok(()) => println!("nonce_echo=PASS"),
+                Err(e) => {
+                    eprintln!("nonce_echo=FAIL: {e}");
+                    return Err(e.into());
+                }
+            }
+
+            if wire_answer.has_padding() {
+                println!(
+                    "padded_answer_len={}",
+                    wire_answer.padded_answer.as_ref().map(|s| s.len()).unwrap_or(0)
+                );
+                println!(
+                    "pad_len={}",
+                    wire_answer.pad_len.unwrap_or(0)
+                );
+            }
+
+            let row = client.engine().recover_row(&wire_answer.answer)?;
+            let text = String::from_utf8_lossy(&row);
+            let trimmed = text.trim_end_matches('\0');
+            println!("index={index}");
+            println!("payload={trimmed}");
+            println!("receipt_check=PASS");
+
+            if replay_protect {
+                println!();
+                println!("Testing replay detection...");
+                let wire_query2 = WireQuery::new(*cat.params(), query_limbs).with_nonce(&nonce);
+                match server.answer_wire(&wire_query2) {
+                    Ok(_) => {
+                        eprintln!("replay_test=FAIL (should have been rejected)");
+                        return Err("replay not detected".into());
+                    }
+                    Err(blinddex::BlindDexError::ReplayDetected { .. }) => {
+                        println!("replay_test=PASS (correctly rejected)");
+                    }
+                    Err(e) => {
+                        eprintln!("replay_test=FAIL: {e}");
+                        return Err(e.into());
+                    }
+                }
+            }
         }
     }
     Ok(())

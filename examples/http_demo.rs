@@ -10,10 +10,27 @@
 //! - `POST /query` — accepts `WireQuery` JSON, returns `WireAnswer` JSON
 //! - `POST /query-proven` — accepts `WireQuery` JSON + `?index=N`, returns proven row JSON
 //!
+//! # Query receipts (v0.6)
+//!
+//! Queries can include an optional `client_nonce` field (hex, 32–64 chars).
+//! The server echoes the nonce in the answer for receipt verification.
+//! With `REPLAY_PROTECT=1`, the server rejects duplicate nonces.
+//!
+//! # Answer padding (v0.6)
+//!
+//! Set `PADDING=<bytes>` to enable constant-size answer padding. All answers
+//! will be padded to the specified size (hides payload length variation).
+//!
 //! # Running
 //!
 //! ```bash
 //! cargo run -p blinddex --example http_demo
+//!
+//! # With replay protection enabled
+//! REPLAY_PROTECT=1 cargo run -p blinddex --example http_demo
+//!
+//! # With answer padding (256 bytes)
+//! PADDING=256 cargo run -p blinddex --example http_demo
 //! ```
 //!
 //! In another terminal:
@@ -25,9 +42,9 @@
 //! # Get sync offer
 //! curl http://localhost:8080/sync
 //!
-//! # Query (you need a valid WireQuery JSON)
+//! # Query with nonce (you need a valid WireQuery JSON)
 //! curl -X POST -H "Content-Type: application/json" \
-//!      -d '{"version":1,"params":{"n_rows":16,"row_bytes":32,"modulus":4294967296},"query":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}' \
+//!      -d '{"version":1,"params":{"n_rows":16,"row_bytes":32,"modulus":4294967296},"query":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"client_nonce":"deadbeef01234567"}' \
 //!      http://localhost:8080/query
 //! ```
 //!
@@ -36,6 +53,8 @@
 //! - No TLS — queries and answers are in cleartext
 //! - No authentication — anyone can query
 //! - The toy PIR query is still an exact one-hot vector
+//! - Replay protection is demo-only (not distributed, not persistent)
+//! - Padding hides payload length only; JSON structure still leaks
 //! - This demo is for testing the wire protocol, not production use
 
 use blinddex::{
@@ -58,10 +77,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cat.insert(Some("email".into()), b"email handler code")?;
     cat.insert(None, b"anonymous payload")?;
 
-    let server = BlindServer::from_catalog(&cat)?;
+    let mut server = BlindServer::from_catalog(&cat)?;
+
+    let replay_protect = std::env::var("REPLAY_PROTECT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if replay_protect {
+        server = server.with_default_replay_protection();
+        println!("Replay protection: ENABLED (last 256 nonces)");
+    } else {
+        println!("Replay protection: disabled (set REPLAY_PROTECT=1 to enable)");
+    }
+
+    let padding_target: Option<usize> = std::env::var("PADDING")
+        .ok()
+        .and_then(|p| p.parse().ok());
+    if let Some(target) = padding_target {
+        server = server.with_answer_padding(target);
+        println!("Answer padding: ENABLED ({target} bytes)");
+    } else {
+        println!("Answer padding: disabled (set PADDING=<bytes> to enable)");
+    }
+
     let dir = server.export_directory();
     let sync_offer = server.sync_offer();
 
+    println!();
     println!("Catalog created with {} entries", cat.len());
     println!("Directory seal: {}", dir.seal_hex());
     println!("Merkle root: {}", server.merkle_root_hex());
@@ -82,6 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  GET  /sync         — WireSyncOffer JSON");
     println!("  POST /query        — WireQuery → WireAnswer");
     println!("  POST /query-proven — WireQuery + ?index=N → WireProvenRow");
+    println!();
+    println!("Query receipts: include 'client_nonce' (hex) in WireQuery; echoed in answer.");
     println!();
     println!("Press Ctrl+C to stop.\n");
 
