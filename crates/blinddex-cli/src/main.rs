@@ -682,12 +682,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if wire_answer.has_padding() {
                 println!(
                     "padded_answer_len={}",
-                    wire_answer.padded_answer.as_ref().map(|s| s.len()).unwrap_or(0)
+                    wire_answer
+                        .padded_answer
+                        .as_ref()
+                        .map(|s| s.len())
+                        .unwrap_or(0)
                 );
-                println!(
-                    "pad_len={}",
-                    wire_answer.pad_len.unwrap_or(0)
-                );
+                println!("pad_len={}", wire_answer.pad_len.unwrap_or(0));
             }
 
             let row = client.engine().recover_row(&wire_answer.answer)?;

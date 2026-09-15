@@ -89,9 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Replay protection: disabled (set REPLAY_PROTECT=1 to enable)");
     }
 
-    let padding_target: Option<usize> = std::env::var("PADDING")
-        .ok()
-        .and_then(|p| p.parse().ok());
+    let padding_target: Option<usize> = std::env::var("PADDING").ok().and_then(|p| p.parse().ok());
     if let Some(target) = padding_target {
         server = server.with_answer_padding(target);
         println!("Answer padding: ENABLED ({target} bytes)");
