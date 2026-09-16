@@ -32,14 +32,16 @@ See [`THREAT_MODEL.md`](THREAT_MODEL.md) and [`SECURITY.md`](SECURITY.md).
 | `directory` | Public directory for name→index resolution (keys + hashes, no payloads); seal/fingerprint |
 | `sync` | Catalog sync handshake (`SyncOffer` / `SyncAck`) for epoch binding between client and server |
 | `receipt` | Query receipts: client nonces for answer verification + server replay window (demo anti-replay) |
+| `cover` | Cover traffic / decoy queries: `CoverPlan` + helpers to issue multiple queries and recover only the real row |
+| `budget` | Query budget: per-epoch token bucket for demo rate-limiting (`QueryBudget`) |
 | `merkle` | `MerkleProof` + path verify against root |
 | `pir` | Encode DB as `Z_q` matrix; query vector; server matvec; client recover; `query_noisy` (toy) |
 | `hint` | Offline hint scaffolding: seeded PRNG expansion for future SimplePIR offline phase |
 | `snapshot` | `SnapshotMeta` for catalog sealing (params + merkle root + row count) |
 | `client` | `get_blind` / `get_blind_proven` / `get_blind_by_key` / `get_blind_by_hash` + proven and epoch-bound variants |
-| `server` | Hold catalog + matrix + root + seal; answer matvecs; replay protection; answer padding |
-| `wire` | JSON codec for `WireQuery` / `WireAnswer` (with nonce + padding fields) / `WireProvenRow` / `WireDirectory` / `WireSyncOffer` / `WireSyncAck` |
-| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `directory` · `get-blind-key` · `get-blind-proven-key` · `get-blind-hash` · `prove` · `root` · `hint-gen` · `snapshot` · `sync-check` · `sync-offer` · `presets` · `receipt-check` |
+| `server` | Hold catalog + matrix + root + seal; answer matvecs; replay protection; answer padding; query budget |
+| `wire` | JSON codec for `WireQuery` / `WireAnswer` (with nonce, padding, budget fields) / `WireProvenRow` / `WireDirectory` / `WireSyncOffer` / `WireSyncAck` |
+| `blinddex` CLI | `put` · `get-blind` · `get-blind-proven` · `batch-get-blind` · `directory` · `get-blind-key` · `get-blind-proven-key` · `get-blind-hash` · `prove` · `root` · `hint-gen` · `snapshot` · `sync-check` · `sync-offer` · `presets` · `receipt-check` · `cover-get-blind` |
 
 ## Quick start
 
@@ -104,6 +106,15 @@ cargo test --workspace
 # Receipt check demo (nonce echo + optional replay detection)
 ./target/release/blinddex receipt-check /tmp/cat.json 0 --replay-protect --padding 256
 
+# Cover traffic: retrieve with 4 decoy queries
+./target/release/blinddex cover-get-blind /tmp/cat.json 0 --decoys 4
+
+# Cover traffic with proof and deterministic seed
+./target/release/blinddex cover-get-blind /tmp/cat.json 0 --decoys 6 --proven --seed $(printf '%064x' 42)
+
+# Cover traffic with query budget demo
+./target/release/blinddex cover-get-blind /tmp/cat.json 0 --decoys 2 --budget 10
+
 # Wire codec demo (no HTTP deps)
 cargo run -p blinddex --example wire_roundtrip
 
@@ -112,6 +123,9 @@ cargo run -p blinddex --example sync_roundtrip
 
 # Minimal HTTP server demo (tiny_http)
 cargo run -p blinddex --example http_demo
+
+# Cover traffic + query budget demo
+cargo run -p blinddex --example cover_roundtrip
 
 # Hint roundtrip demo
 cargo run -p blinddex --example hint_roundtrip
@@ -235,6 +249,7 @@ examples/
   directory_roundtrip.rs  # directory + keyed retrieval demo
   sync_roundtrip.rs       # sync handshake + epoch-bound query demo
   http_demo.rs            # minimal HTTP server demo (tiny_http)
+  cover_roundtrip.rs      # cover traffic + query budget demo
   bench_matvec.rs         # timing benchmark
 fixtures/catalog_toy.json
 THREAT_MODEL.md

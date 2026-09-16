@@ -5,6 +5,40 @@ All notable changes to BlindDex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-09-16
+
+### Added
+
+- **Cover traffic / decoy queries** (`cover` module): `CoverPlan` generates a
+  deterministic set of decoy indices alongside a real query. Helpers
+  `execute_cover_plan()`, `execute_cover_plan_all()`, `execute_cover_plan_proven()`
+  issue independent matvecs and recover the real row. Dilutes which query is
+  real from an observer's perspective (does NOT hide indices on toy one-hot path).
+- **Query budget** (`budget` module): `QueryBudget` provides a per-epoch token
+  bucket for rate-limiting queries. `BlindServer::with_query_budget(capacity)`
+  enables budget enforcement on wire queries. Returns `BudgetExceeded` when
+  exhausted. Demo fairness/anti-spam only (not authentication).
+- **Wire budget status**: `WireAnswer::budget_status` optional field reports
+  remaining tokens to clients. `WireBudgetStatus { remaining, epoch_key }`.
+- **New error variant**: `BlindDexError::BudgetExceeded` for budget exhaustion.
+- **CLI command**: `cover-get-blind` issues cover queries with configurable
+  decoys, seed, proof, and optional budget. Shows cover plan details and results.
+- **Example**: `examples/cover_roundtrip.rs` demonstrates cover plan creation,
+  execution, proof verification, budget enforcement, and exhaustion handling.
+- **Tests**: `tests/cover_budget.rs` integration tests for cover plans
+  (determinism, distinct indices, real inclusion, bounds checking) and budget
+  (consumption, exhaustion, refill, wire status).
+
+### Changed
+
+- Workspace version bumped to **0.7.0**.
+- `BlindServer` gains `query_budget`, `budget_capacity()`, `budget_remaining()`,
+  `has_query_budget()` methods. Budget checked on `answer_wire()` and
+  `answer_wire_proven()`.
+- README updated with cover/budget modules, CLI examples, and honest non-claims.
+- THREAT_MODEL updated with cover traffic and query budget sections.
+- SECURITY updated with 0.7.x supported versions row.
+
 ## [0.6.0] — 2026-09-15
 
 ### Added

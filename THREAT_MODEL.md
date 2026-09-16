@@ -242,10 +242,68 @@ size, storing the result in `padded_answer` (hex) with `pad_len` for verificatio
 - For production, combine with real PIR (LWE queries), traffic shaping, and
   cover traffic.
 
+## Cover traffic (v0.7)
+
+The `cover` module provides **cover traffic** — issuing decoy queries alongside
+a real query to dilute which one is the actual retrieval.
+
+### What cover traffic provides
+
+- **Dilution**: An observer sees multiple queries but cannot (without inspecting
+  query content) determine which is the real one.
+- **Deterministic decoys**: Given the same seed, the same decoy indices are
+  selected, enabling reproducible tests and debugging.
+
+### What cover traffic does NOT provide
+
+- **Index hiding on the toy path**: The toy one-hot query reveals the index to
+  the server in every query — real and decoy alike. Cover traffic does NOT help
+  when the server can read query content.
+- **Traffic analysis resistance**: Cover traffic does not hide that queries
+  happened, their timing, their count, or their sizes.
+- **Privacy without LWE**: Cover traffic provides real privacy only when
+  combined with LWE queries where the server cannot distinguish real from decoy
+  by inspecting the ciphertext.
+
+### Recommended usage
+
+- Use cover traffic to demonstrate the API shape for future batched queries.
+- Combine with LWE queries (when available) for actual index privacy.
+- Do not rely on cover traffic alone for any privacy guarantees on the toy path.
+
+## Query budget (v0.7)
+
+The `budget` module provides a **per-epoch token bucket** for rate-limiting
+queries. `BlindServer::with_query_budget(capacity)` enables enforcement.
+
+### What query budget provides
+
+- **Demo rate limiting**: Prevents trivial exhaustion of server resources.
+- **Per-epoch isolation**: Different catalog epochs have independent budgets.
+- **Budget status in answers**: `WireAnswer` optionally reports remaining tokens.
+
+### What query budget does NOT provide
+
+- **Authentication**: The budget does not authenticate clients. Anyone who can
+  send a query can consume tokens.
+- **Per-client tracking**: There is no client identity; all queries from all
+  sources share the same bucket.
+- **Sybil resistance**: An attacker can exhaust the budget with many queries
+  from different sources.
+- **Persistence**: Budget state is in-memory; lost on server restart.
+- **Distributed enforcement**: Multiple server instances do not share budget
+  state.
+
+### Recommended usage
+
+- Use query budget for demo fairness / anti-spam in controlled scenarios.
+- For production, combine with proper authentication, persistent rate-limit
+  storage (e.g., Redis), and per-client tracking.
+
 ## Intended evolution
 
 1. Replace exact queries with LWE / SimplePIR-style noisy queries.
 2. Wire the offline hint into actual precomputation for online savings.
 3. Optional packed multi-query API with documented leakage.
 4. Thin HTTP host wrapping the same wire types (`examples/http_demo.rs`
-   is the embedding sketch for v0.6).
+   is the embedding sketch for v0.7).
