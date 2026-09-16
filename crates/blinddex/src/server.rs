@@ -14,7 +14,17 @@
 //!
 //! **Honest limitation**: The replay window is demo-only, not distributed,
 //! and not authenticated. See `THREAT_MODEL.md`.
+//!
+//! # Query budget (v0.7)
+//!
+//! The server can enforce a per-epoch query budget using a token bucket. Enable
+//! with [`BlindServer::with_query_budget`]. When enabled, each query consumes
+//! one token; queries are rejected when the budget is exhausted.
+//!
+//! **Honest limitation**: The budget is demo fairness/anti-spam only, not
+//! authentication. See `THREAT_MODEL.md`.
 
+use crate::budget::QueryBudget;
 use crate::catalog::Catalog;
 use crate::directory::Directory;
 use crate::error::Result;
@@ -40,6 +50,16 @@ use crate::wire::WireQuery;
 /// - Not distributed (multiple servers don't share state)
 /// - Not authenticated (a MITM could strip nonces)
 /// - Memory-bounded (old nonces are evicted)
+///
+/// # Query budget (v0.7)
+///
+/// Optionally enforces a per-epoch query budget. Enable with
+/// [`Self::with_query_budget`]. Each query consumes one token; excess queries
+/// are rejected with [`BlindDexError::BudgetExceeded`]. This is demo
+/// fairness/anti-spam only:
+/// - Not authenticated (no per-client tracking)
+/// - Not persistent (state lost on restart)
+/// - Per-epoch (different epochs have independent budgets)
 #[derive(Debug, Clone)]
 pub struct BlindServer {
     catalog: Catalog,
@@ -48,6 +68,7 @@ pub struct BlindServer {
     directory_seal: [u8; 32],
     replay_window: Option<ReplayWindow>,
     padding_target: Option<usize>,
+    query_budget: Option<QueryBudget>,
 }
 
 impl BlindServer {
@@ -64,6 +85,7 @@ impl BlindServer {
             directory_seal: directory.seal(),
             replay_window: None,
             padding_target: None,
+            query_budget: None,
         })
     }
 
@@ -106,6 +128,45 @@ impl BlindServer {
     /// Get the configured padding target (if any).
     pub fn padding_target(&self) -> Option<usize> {
         self.padding_target
+    }
+
+    /// Enable query budget with the specified capacity per epoch.
+    ///
+    /// When enabled, each query consumes one token from the epoch's budget.
+    /// Queries are rejected with [`BlindDexError::BudgetExceeded`] when
+    /// tokens are exhausted.
+    ///
+    /// The epoch key is the merkle root hex. Different catalog epochs have
+    /// independent budgets.
+    ///
+    /// This is demo fairness/anti-spam only — see module docs.
+    pub fn with_query_budget(mut self, capacity: usize) -> Self {
+        self.query_budget = Some(QueryBudget::new(capacity));
+        self
+    }
+
+    /// Check if query budget is enabled.
+    pub fn has_query_budget(&self) -> bool {
+        self.query_budget.is_some()
+    }
+
+    /// Get the configured budget capacity (if any).
+    pub fn budget_capacity(&self) -> Option<usize> {
+        self.query_budget.as_ref().map(|b| b.capacity())
+    }
+
+    /// Get remaining budget for the current epoch.
+    ///
+    /// Returns `None` if budget is not enabled.
+    pub fn budget_remaining(&self) -> Option<usize> {
+        self.query_budget
+            .as_ref()
+            .map(|b| b.remaining(&self.merkle_root_hex()))
+    }
+
+    /// Access the query budget (if enabled).
+    pub fn query_budget(&self) -> Option<&QueryBudget> {
+        self.query_budget.as_ref()
     }
 
     /// Access the replay window (if enabled).
@@ -198,7 +259,8 @@ impl BlindServer {
     ///
     /// If replay protection is enabled, checks the nonce against the replay
     /// window and rejects duplicates. If padding is enabled, adds padding to
-    /// the answer.
+    /// the answer. If query budget is enabled, consumes one token and includes
+    /// remaining budget in the answer.
     pub fn answer_wire(&self, query: &WireQuery) -> Result<crate::wire::WireAnswer> {
         self.verify_query_epoch(query)?;
 
@@ -208,10 +270,19 @@ impl BlindServer {
             }
         }
 
+        let epoch_key = self.merkle_root_hex();
+        if let Some(ref budget) = self.query_budget {
+            budget.try_consume_one(&epoch_key)?;
+        }
+
         let answer = self.answer(&query.query)?;
         let mut wire_answer = crate::wire::WireAnswer::new(answer)
-            .with_epoch(&self.directory_seal_hex(), &self.merkle_root_hex())
+            .with_epoch(&self.directory_seal_hex(), &epoch_key)
             .echo_nonce_from(query);
+
+        if let Some(ref budget) = self.query_budget {
+            wire_answer = wire_answer.with_budget_status(budget.remaining(&epoch_key), &epoch_key);
+        }
 
         if let Some(target) = self.padding_target {
             wire_answer = wire_answer.with_padding(target)?;
@@ -226,7 +297,8 @@ impl BlindServer {
     ///
     /// If replay protection is enabled, checks the nonce against the replay
     /// window and rejects duplicates. If padding is enabled, adds padding to
-    /// the answer.
+    /// the answer. If query budget is enabled, consumes one token and includes
+    /// remaining budget in the answer.
     pub fn answer_wire_proven(
         &self,
         query: &WireQuery,
@@ -240,10 +312,19 @@ impl BlindServer {
             }
         }
 
+        let epoch_key = self.merkle_root_hex();
+        if let Some(ref budget) = self.query_budget {
+            budget.try_consume_one(&epoch_key)?;
+        }
+
         let (answer, proof) = self.answer_proven(&query.query, index)?;
         let mut wire_answer = crate::wire::WireAnswer::new(answer)
-            .with_epoch(&self.directory_seal_hex(), &self.merkle_root_hex())
+            .with_epoch(&self.directory_seal_hex(), &epoch_key)
             .echo_nonce_from(query);
+
+        if let Some(ref budget) = self.query_budget {
+            wire_answer = wire_answer.with_budget_status(budget.remaining(&epoch_key), &epoch_key);
+        }
 
         if let Some(target) = self.padding_target {
             wire_answer = wire_answer.with_padding(target)?;
