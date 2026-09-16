@@ -136,6 +136,17 @@ pub enum BlindDexError {
     /// Padding error: answer padding is invalid or corrupted.
     #[error("padding error: {0}")]
     PaddingError(String),
+
+    /// Query budget exceeded: not enough tokens remaining.
+    #[error("budget exceeded for epoch {epoch_key}: requested {requested}, remaining {remaining}")]
+    BudgetExceeded {
+        /// Number of tokens requested.
+        requested: usize,
+        /// Number of tokens remaining.
+        remaining: usize,
+        /// Epoch key (merkle root or seal).
+        epoch_key: String,
+    },
 }
 
 impl From<serde_json::Error> for BlindDexError {
