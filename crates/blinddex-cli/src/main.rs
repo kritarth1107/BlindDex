@@ -1,11 +1,11 @@
 //! BlindDex CLI: put / get-blind / get-blind-proven / batch-get-blind / prove / root /
 //! directory / get-blind-key / get-blind-proven-key / get-blind-hash / hint-gen / snapshot /
-//! sync-check / sync-offer / presets / receipt-check.
+//! sync-check / sync-offer / presets / receipt-check / cover-get-blind.
 
 use blinddex::{
-    generate_nonce_hex_default, proof_to_json, BlindClient, BlindServer, Catalog, Hint, Params,
-    PinnedEpoch, SnapshotMeta, SyncOffer, WireBatchProven, WireDirectory, WireProvenRow, WireQuery,
-    WireSyncOffer,
+    execute_cover_plan, execute_cover_plan_proven, generate_nonce_hex_default, proof_to_json,
+    BlindClient, BlindServer, Catalog, CoverPlan, Hint, Params, PinnedEpoch, SnapshotMeta,
+    SyncOffer, WireBatchProven, WireDirectory, WireProvenRow, WireQuery, WireSyncOffer,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -189,6 +189,28 @@ enum Commands {
         /// Enable answer padding (specify target bytes).
         #[arg(long)]
         padding: Option<usize>,
+    },
+    /// Blind retrieve with cover traffic (decoy queries).
+    CoverGetBlind {
+        /// Path to catalog JSON.
+        catalog: PathBuf,
+        /// Decimal index of the real row to retrieve.
+        index: usize,
+        /// Number of decoy queries to issue (0-15).
+        #[arg(long, default_value_t = 4)]
+        decoys: usize,
+        /// 32-byte seed as hex (64 chars) for deterministic decoy selection.
+        #[arg(long)]
+        seed: Option<String>,
+        /// Include Merkle proof verification.
+        #[arg(long)]
+        proven: bool,
+        /// Emit JSON output (WireProvenRow or raw row hex).
+        #[arg(long)]
+        json: bool,
+        /// Enable query budget with specified capacity (demo).
+        #[arg(long)]
+        budget: Option<usize>,
     },
 }
 
@@ -715,6 +737,107 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         return Err(e.into());
                     }
                 }
+            }
+        }
+        Commands::CoverGetBlind {
+            catalog,
+            index,
+            decoys,
+            seed,
+            proven,
+            json,
+            budget,
+        } => {
+            let cat = Catalog::load_json(&catalog)?;
+            let mut server = BlindServer::from_catalog(&cat)?;
+            let client = BlindClient::new(&cat)?;
+
+            if let Some(capacity) = budget {
+                server = server.with_query_budget(capacity);
+                if !json {
+                    println!("budget_capacity={capacity}");
+                }
+            }
+
+            let seed_bytes: [u8; 32] = if let Some(hex_str) = seed {
+                let bytes = hex::decode(&hex_str).map_err(|e| format!("invalid seed hex: {e}"))?;
+                if bytes.len() != 32 {
+                    return Err(format!(
+                        "seed must be 32 bytes (64 hex chars), got {}",
+                        bytes.len()
+                    )
+                    .into());
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                arr
+            } else {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let nanos = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                let hash = blake3::hash(&nanos.to_le_bytes());
+                *hash.as_bytes()
+            };
+
+            let plan = CoverPlan::new(index, decoys, cat.params().n_rows, seed_bytes)?;
+
+            if !json {
+                println!("cover_plan:");
+                println!("  real_index={}", plan.real_index());
+                println!("  decoy_count={}", plan.decoy_count());
+                println!("  total_queries={}", plan.total_queries());
+                println!("  indices={:?}", plan.indices());
+                println!("  real_position={}", plan.real_position());
+                println!("  seed={}", hex::encode(plan.seed()));
+                println!();
+            }
+
+            if proven {
+                let result = execute_cover_plan_proven(&client, &server, &plan)?;
+                if json {
+                    let wire = WireProvenRow::new(
+                        result.index,
+                        &result.row,
+                        &server.merkle_root(),
+                        result.proof,
+                    );
+                    println!("{}", wire.to_json()?);
+                } else {
+                    let text = String::from_utf8_lossy(&result.row);
+                    let trimmed = text.trim_end_matches('\0');
+                    println!("result:");
+                    println!("  index={}", result.index);
+                    println!("  payload={trimmed}");
+                    println!("  leaf_hash={}", result.proof.leaf_hash_hex());
+                    println!("  merkle_root={}", server.merkle_root_hex());
+                    println!("  proof_ok=true");
+                }
+            } else {
+                let row = execute_cover_plan(&client, &server, &plan)?;
+                if json {
+                    println!("{{\"row_hex\":\"{}\"}}", hex::encode(&row));
+                } else {
+                    let text = String::from_utf8_lossy(&row);
+                    let trimmed = text.trim_end_matches('\0');
+                    println!("result:");
+                    println!("  index={index}");
+                    println!("  payload={trimmed}");
+                    println!("  content_hash={}", Catalog::content_hash(&row));
+                }
+            }
+
+            if let Some(remaining) = server.budget_remaining() {
+                if !json {
+                    println!();
+                    println!("budget_remaining={remaining}");
+                }
+            }
+
+            if !json {
+                println!();
+                println!("note=cover traffic dilutes which query was real, but does NOT hide indices on toy path");
             }
         }
     }

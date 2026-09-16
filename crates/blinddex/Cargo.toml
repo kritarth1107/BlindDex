@@ -45,3 +45,7 @@ path = "../../examples/http_demo.rs"
 [[example]]
 name = "sync_roundtrip"
 path = "../../examples/sync_roundtrip.rs"
+
+[[example]]
+name = "cover_roundtrip"
+path = "../../examples/cover_roundtrip.rs"

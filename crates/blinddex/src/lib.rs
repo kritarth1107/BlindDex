@@ -16,13 +16,18 @@
 //! - Server sees query **size**; we do not hide that a query happened.
 //! - Query privacy on the wire is still **toy** (exact one-hot); JSON encoding
 //!   does not add privacy.
+//! - Cover traffic dilutes which query is real but does NOT hide indices on the
+//!   toy one-hot path.
+//! - Query budget is demo fairness/anti-spam, not authentication.
 //! - Not production parameters; not ANN / vector search.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod budget;
 pub mod catalog;
 pub mod client;
+pub mod cover;
 pub mod directory;
 pub mod error;
 pub mod hint;
@@ -35,8 +40,12 @@ pub mod snapshot;
 pub mod sync;
 pub mod wire;
 
+pub use budget::QueryBudget;
 pub use catalog::{Catalog, CatalogFile, CatalogFileEntry};
 pub use client::{BlindClient, ProvenRow, MAX_BATCH_SIZE};
+pub use cover::{
+    execute_cover_plan, execute_cover_plan_all, execute_cover_plan_proven, CoverPlan, MAX_DECOYS,
+};
 pub use directory::{Directory, DirectoryEntry, DirectoryParams, DIRECTORY_VERSION};
 pub use error::{BlindDexError, Result};
 pub use hint::{Hint, HINT_VERSION};
@@ -54,6 +63,6 @@ pub use server::{put_entry, BlindServer};
 pub use snapshot::{SnapshotMeta, SNAPSHOT_VERSION};
 pub use sync::{PinnedEpoch, SyncAck, SyncOffer, SYNC_VERSION};
 pub use wire::{
-    proof_from_json, proof_to_json, WireAnswer, WireBatchProven, WireDirectory, WireDirectoryEntry,
-    WireProvenRow, WireQuery, WireSyncAck, WireSyncOffer, WIRE_VERSION,
+    proof_from_json, proof_to_json, WireAnswer, WireBatchProven, WireBudgetStatus, WireDirectory,
+    WireDirectoryEntry, WireProvenRow, WireQuery, WireSyncAck, WireSyncOffer, WIRE_VERSION,
 };

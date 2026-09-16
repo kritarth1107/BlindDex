@@ -43,6 +43,17 @@ use serde::{Deserialize, Serialize};
 /// Wire envelope version tag.
 pub const WIRE_VERSION: u32 = 1;
 
+/// Wire representation of query budget status.
+///
+/// Optionally included in answers to inform clients of remaining budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireBudgetStatus {
+    /// Remaining tokens in the budget for this epoch.
+    pub remaining: usize,
+    /// Epoch key the budget applies to (hex string).
+    pub epoch_key: String,
+}
+
 /// JSON-friendly PIR query.
 ///
 /// # Epoch binding
@@ -127,6 +138,9 @@ pub struct WireAnswer {
     /// Number of padding bytes in `padded_answer` (for verification).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pad_len: Option<usize>,
+    /// Optional budget status (remaining tokens for this epoch).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_status: Option<WireBudgetStatus>,
 }
 
 /// Proven retrieval result on the wire: recovered row + inclusion proof.
@@ -251,6 +265,7 @@ impl WireAnswer {
             client_nonce: None,
             padded_answer: None,
             pad_len: None,
+            budget_status: None,
         }
     }
 
@@ -301,6 +316,20 @@ impl WireAnswer {
     /// Check if this answer has padding.
     pub fn has_padding(&self) -> bool {
         self.padded_answer.is_some()
+    }
+
+    /// Check if this answer has budget status.
+    pub fn has_budget_status(&self) -> bool {
+        self.budget_status.is_some()
+    }
+
+    /// Attach budget status to the answer.
+    pub fn with_budget_status(mut self, remaining: usize, epoch_key: &str) -> Self {
+        self.budget_status = Some(WireBudgetStatus {
+            remaining,
+            epoch_key: epoch_key.to_string(),
+        });
+        self
     }
 
     /// Pad the answer to a fixed total size (in bytes of the padded_answer hex payload).
