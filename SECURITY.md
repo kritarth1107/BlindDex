@@ -4,6 +4,7 @@
 
 | Version | Supported |
 | --- | --- |
+| 0.7.x | Toy / research — cover traffic + query budget; demo only, not production privacy or rate-limiting |
 | 0.6.x | Toy / research — query receipts + answer padding; demo anti-replay only, not production crypto |
 | 0.5.x | Toy / research — sync handshake + epoch binding; use with pinned seal/root and cleartext-query awareness |
 | 0.4.x | Toy / research — public directories; use with pinned seal and cleartext-query awareness |
